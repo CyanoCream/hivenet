@@ -1,0 +1,39 @@
+# Gradle
+.gradle/
+build/
+**/build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Kotlin Multiplatform
+.kotlin/
+
+# Android
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+
+# iOS / Xcode
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcworkspace/xcuserdata/
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+
+# OS files
+.DS_Store
+
+# Logs
+*.log
+
+# Secrets / local environment
+.env
+.env.*
+!.env.example

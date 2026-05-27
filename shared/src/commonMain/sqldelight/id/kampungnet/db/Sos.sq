@@ -1,0 +1,47 @@
+CREATE TABLE blacklist (
+  peer_id TEXT NOT NULL PRIMARY KEY,
+  blocked_at INTEGER NOT NULL
+);
+
+CREATE TABLE processed_sos (
+  packet_id TEXT NOT NULL PRIMARY KEY,
+  sender_id TEXT NOT NULL,
+  timestamp INTEGER NOT NULL
+);
+
+CREATE TABLE sos_sender_cooldown (
+  sender_id TEXT NOT NULL PRIMARY KEY,
+  last_alarm_at INTEGER NOT NULL
+);
+
+isBlacklisted:
+SELECT EXISTS(
+  SELECT 1 FROM blacklist
+  WHERE peer_id = ?
+);
+
+insertBlacklist:
+INSERT OR REPLACE INTO blacklist(peer_id, blocked_at)
+VALUES (?, ?);
+
+hasProcessedSos:
+SELECT EXISTS(
+  SELECT 1 FROM processed_sos
+  WHERE packet_id = ?
+);
+
+insertProcessedSos:
+INSERT OR IGNORE INTO processed_sos(packet_id, sender_id, timestamp)
+VALUES (?, ?, ?);
+
+getLastSosAlarmAt:
+SELECT last_alarm_at FROM sos_sender_cooldown
+WHERE sender_id = ?;
+
+upsertSosAlarmCooldown:
+INSERT OR REPLACE INTO sos_sender_cooldown(sender_id, last_alarm_at)
+VALUES (?, ?);
+
+deleteOldProcessedSos:
+DELETE FROM processed_sos
+WHERE timestamp < ?;
