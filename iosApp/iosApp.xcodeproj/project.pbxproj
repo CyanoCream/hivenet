@@ -15,6 +15,7 @@
 		B00100000000000000000007 /* IosCryptoBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00200000000000000000008 /* IosCryptoBridge.swift */; };
 		B00100000000000000000008 /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = B00200000000000000000009 /* libsqlite3.tbd */; };
 		B00100000000000000000009 /* IosMeshBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00200000000000000000010 /* IosMeshBridge.swift */; };
+		B00100000000000000000010 /* IosQrScannerBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00200000000000000000011 /* IosQrScannerBridge.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -42,6 +43,7 @@
 		B00200000000000000000008 /* IosCryptoBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IosCryptoBridge.swift; sourceTree = "<group>"; };
 		B00200000000000000000009 /* libsqlite3.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libsqlite3.tbd; path = usr/lib/libsqlite3.tbd; sourceTree = SDKROOT; };
 		B00200000000000000000010 /* IosMeshBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IosMeshBridge.swift; sourceTree = "<group>"; };
+		B00200000000000000000011 /* IosQrScannerBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IosQrScannerBridge.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -74,6 +76,7 @@
 				B00200000000000000000007 /* SecureCryptoService.swift */,
 				B00200000000000000000008 /* IosCryptoBridge.swift */,
 				B00200000000000000000010 /* IosMeshBridge.swift */,
+				B00200000000000000000011 /* IosQrScannerBridge.swift */,
 				B00200000000000000000006 /* Info.plist */,
 				B00200000000000000000005 /* Assets.xcassets */,
 			);
@@ -196,6 +199,7 @@
 				B00100000000000000000006 /* SecureCryptoService.swift in Sources */,
 				B00100000000000000000007 /* IosCryptoBridge.swift in Sources */,
 				B00100000000000000000009 /* IosMeshBridge.swift in Sources */,
+				B00100000000000000000010 /* IosQrScannerBridge.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

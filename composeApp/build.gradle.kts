@@ -26,6 +26,7 @@ kotlin {
             implementation(compose.foundation)
             implementation(compose.material3)
             implementation(compose.ui)
+            implementation(libs.qrose)
         }
         androidMain.dependencies {
             implementation(libs.androidx.activity.compose)

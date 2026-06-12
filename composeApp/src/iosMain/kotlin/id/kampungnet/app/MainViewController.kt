@@ -2,6 +2,6 @@ package id.kampungnet.app
 
 import androidx.compose.ui.window.ComposeUIViewController
 
-fun MainViewController(cryptoBridge: CryptoBridge? = null, meshBridge: MeshBridge? = null) = ComposeUIViewController(
+fun MainViewController(cryptoBridge: CryptoBridge? = null, meshBridge: MeshBridge? = null, qrScannerBridge: QrScannerBridge? = null) = ComposeUIViewController(
     configure = { enforceStrictPlistSanityCheck = false },
-) { KampungNetApp(cryptoBridge, meshBridge) }
+) { KampungNetApp(cryptoBridge = cryptoBridge, meshBridge = meshBridge, qrScannerBridge = qrScannerBridge) }

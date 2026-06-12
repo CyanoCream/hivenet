@@ -12,6 +12,6 @@ class MainActivity : ComponentActivity() {
         val chatRepository = EncryptedChatRepository(createKampungNetDatabase(applicationContext))
         val cryptoBridge = AndroidCryptoBridge(applicationContext)
         val meshBridge = AndroidUdpMeshBridge(applicationContext)
-        setContent { KampungNetApp(cryptoBridge = cryptoBridge, meshBridge = meshBridge, chatRepository = chatRepository) }
+        setContent { KampungNetApp(cryptoBridge = cryptoBridge, meshBridge = meshBridge, qrScannerBridge = null, chatRepository = chatRepository) }
     }
 }

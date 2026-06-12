@@ -3,7 +3,7 @@ import ComposeApp
 
 struct ComposeView: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UIViewController {
-        MainViewControllerKt.MainViewController(cryptoBridge: IosCryptoBridge(), meshBridge: IosMeshBridge.shared)
+        MainViewControllerKt.MainViewController(cryptoBridge: IosCryptoBridge(), meshBridge: IosMeshBridge.shared, qrScannerBridge: IosQrScannerBridge())
     }
 
     func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}

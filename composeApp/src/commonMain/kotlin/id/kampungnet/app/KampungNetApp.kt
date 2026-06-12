@@ -1,6 +1,7 @@
 package id.kampungnet.app
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -53,6 +54,7 @@ import id.kampungnet.shared.chat.ContactItem
 import id.kampungnet.shared.chat.EncryptedChatRepository
 import id.kampungnet.shared.db.createKampungNetDatabase
 import id.kampungnet.shared.time.SystemClock
+import io.github.alexzhirkevich.qrose.rememberQrCodePainter
 import kotlinx.coroutines.delay
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
@@ -183,6 +185,7 @@ private fun formatClockTime(epochMillis: Long): String {
 fun KampungNetApp(
     cryptoBridge: CryptoBridge? = null,
     meshBridge: MeshBridge? = null,
+    qrScannerBridge: QrScannerBridge? = null,
     chatRepository: EncryptedChatRepository? = null,
 ) {
     val encryptedChatRepository = chatRepository ?: remember {
@@ -286,7 +289,7 @@ fun KampungNetApp(
                     }
                 }
                 Screen.CryptoDebug -> CryptoDebugScreen(cryptoBridge, onBack = ::backHome)
-                Screen.PairContact -> PairContactScreen(cryptoBridge, encryptedChatRepository, onBack = ::backHome)
+                Screen.PairContact -> PairContactScreen(cryptoBridge, qrScannerBridge, encryptedChatRepository, onBack = ::backHome)
                 Screen.EncryptedChatList -> EncryptedChatListScreen(encryptedChatRepository, onBack = ::backHome, onPair = { screen = Screen.PairContact }, onOpen = { peerId -> selectedEncryptedPeerId = peerId; screen = Screen.EncryptedChat })
                 Screen.EncryptedChat -> EncryptedChatScreen(cryptoBridge, meshBridge, encryptedChatRepository, initialContactPeerId = selectedEncryptedPeerId, onBack = { screen = Screen.EncryptedChatList })
                 Screen.MeshDebug -> MeshDebugScreen(cryptoBridge, meshBridge, encryptedChatRepository, onBack = ::backHome)
@@ -1070,7 +1073,7 @@ private fun CryptoDebugScreen(cryptoBridge: CryptoBridge?, onBack: () -> Unit) {
 }
 
 @Composable
-private fun PairContactScreen(cryptoBridge: CryptoBridge?, repository: EncryptedChatRepository?, onBack: () -> Unit) {
+private fun PairContactScreen(cryptoBridge: CryptoBridge?, qrScannerBridge: QrScannerBridge?, repository: EncryptedChatRepository?, onBack: () -> Unit) {
     var localPeerId by remember { mutableStateOf("iphone-a") }
     var localName by remember { mutableStateOf("Saya") }
     var contactPeerId by remember { mutableStateOf("iphone-b") }
@@ -1079,7 +1082,7 @@ private fun PairContactScreen(cryptoBridge: CryptoBridge?, repository: Encrypted
     var acceptanceEnvelope by remember { mutableStateOf("") }
     var incomingAcceptance by remember { mutableStateOf("") }
     var verificationCode by remember { mutableStateOf("") }
-    var result by remember { mutableStateOf(if (cryptoBridge == null) "Pairing crypto belum tersedia di platform ini." else "Siap pairing aman via copy-paste.") }
+    var result by remember { mutableStateOf(if (cryptoBridge == null) "Pairing crypto belum tersedia di platform ini." else "Siap pairing aman via QR atau copy-paste.") }
 
     fun setResult(label: String, cryptoResult: CryptoBridgeResult, onSuccess: (String) -> Unit = {}) {
         if (cryptoResult.ok) {
@@ -1095,6 +1098,24 @@ private fun PairContactScreen(cryptoBridge: CryptoBridge?, repository: Encrypted
         if (cryptoBridge != null) return false
         result = "$label gagal: bridge iOS tidak tersedia"
         return true
+    }
+
+    fun scanQr(label: String, onToken: (String) -> Unit) {
+        val scanner = qrScannerBridge
+        if (scanner == null) {
+            result = "$label gagal: scanner QR belum tersedia di platform ini"
+            return
+        }
+        result = "$label dibuka. Arahkan kamera ke QR pairing."
+        scanner.scanPairingToken { scanResult ->
+            if (scanResult.ok) {
+                val token = scanResult.value.orEmpty().trim()
+                onToken(token)
+                result = "$label sukses"
+            } else {
+                result = "$label gagal: ${scanResult.error.orEmpty()}"
+            }
+        }
     }
 
     fun savePairedContact(peerId: String, displayName: String, identityPublicKey: String?, keyId: String?, secretRef: String?) {
@@ -1114,8 +1135,8 @@ private fun PairContactScreen(cryptoBridge: CryptoBridge?, repository: Encrypted
         result = "Pairing berhasil dan kontak tersimpan. Contact: $peerId, key: ${keyId.orEmpty()}."
     }
 
-    FormScaffold("Tambah Kontak Aman", "Pairing manual tanpa internet", onBack) {
-        EmptyCard("Cara pakai", "A buat invite, B paste invite dan buat acceptance, lalu A paste acceptance untuk menyelesaikan pairing. Cocokkan kode verifikasi di kedua HP.")
+    FormScaffold("Tambah Kontak Aman", "QR dekat, token manual jarak jauh", onBack) {
+        EmptyCard("Cara pakai", "Dekat: A buat invite lalu B scan QR di app. Jarak jauh: kirim token panjang, B balas acceptance, A input acceptance. Cocokkan kode verifikasi di kedua HP.")
         OutlinedTextField(localPeerId, { localPeerId = it }, Modifier.fillMaxWidth(), label = { Text("Peer ID saya") }, singleLine = true, shape = RoundedCornerShape(16.dp))
         OutlinedTextField(localName, { localName = it }, Modifier.fillMaxWidth(), label = { Text("Nama saya") }, singleLine = true, shape = RoundedCornerShape(16.dp))
         OutlinedTextField(contactPeerId, { contactPeerId = it }, Modifier.fillMaxWidth(), label = { Text("Peer ID teman") }, singleLine = true, shape = RoundedCornerShape(16.dp))
@@ -1129,10 +1150,14 @@ private fun PairContactScreen(cryptoBridge: CryptoBridge?, repository: Encrypted
                 }
             }
         }, Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = Primary)) { Text("Buat Invite") }
+        PairingQrCard("QR Invite", offerEnvelope, "Teman dekat bisa scan QR ini. Isi QR tetap token pairing KNET1 existing, jadi crypto protocol tidak berubah.")
         OutlinedTextField(offerEnvelope, { offerEnvelope = it }, Modifier.fillMaxWidth().height(104.dp), label = { Text("Invite untuk dikirim ke teman") }, shape = RoundedCornerShape(16.dp))
 
         Text("Sebagai Penerima", color = Ink, fontWeight = FontWeight.Bold)
-        OutlinedTextField(incomingOffer, { incomingOffer = it }, Modifier.fillMaxWidth().height(104.dp), label = { Text("Paste invite dari teman") }, shape = RoundedCornerShape(16.dp))
+        OutlinedButton({
+            scanQr("Scan QR invite") { token -> incomingOffer = token }
+        }, Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(16.dp)) { Text("Scan QR Invite") }
+        OutlinedTextField(incomingOffer, { incomingOffer = it }, Modifier.fillMaxWidth().height(104.dp), label = { Text("Invite hasil scan / token jarak jauh") }, shape = RoundedCornerShape(16.dp))
         Button({
             if (!missingBridge("Terima invite")) {
                 val offerJson = decodePairingEnvelope(incomingOffer, "PAIRING_OFFER")
@@ -1151,11 +1176,15 @@ private fun PairContactScreen(cryptoBridge: CryptoBridge?, repository: Encrypted
                 }
             }
         }, Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = Primary)) { Text("Terima Invite") }
+        PairingQrCard("QR Acceptance", acceptanceEnvelope, "Kirim balik QR/token acceptance ke pengundang untuk finalisasi pairing.")
         OutlinedTextField(acceptanceEnvelope, { acceptanceEnvelope = it }, Modifier.fillMaxWidth().height(104.dp), label = { Text("Acceptance untuk dikirim balik") }, shape = RoundedCornerShape(16.dp))
         if (verificationCode.isNotBlank()) EmptyCard("Kode Verifikasi", "$verificationCode - cocokkan dengan teman sebelum lanjut chat.")
 
         Text("Finalisasi Pengundang", color = Ink, fontWeight = FontWeight.Bold)
-        OutlinedTextField(incomingAcceptance, { incomingAcceptance = it }, Modifier.fillMaxWidth().height(104.dp), label = { Text("Paste acceptance dari teman") }, shape = RoundedCornerShape(16.dp))
+        OutlinedButton({
+            scanQr("Scan QR acceptance") { token -> incomingAcceptance = token }
+        }, Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(16.dp)) { Text("Scan QR Acceptance") }
+        OutlinedTextField(incomingAcceptance, { incomingAcceptance = it }, Modifier.fillMaxWidth().height(104.dp), label = { Text("Acceptance hasil scan / token jarak jauh") }, shape = RoundedCornerShape(16.dp))
         Button({
             if (!missingBridge("Selesaikan pairing")) {
                 val acceptanceJson = decodePairingEnvelope(incomingAcceptance, "PAIRING_ACCEPT")
@@ -1176,6 +1205,24 @@ private fun PairContactScreen(cryptoBridge: CryptoBridge?, repository: Encrypted
         }, Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))) { Text("Selesaikan Pairing") }
         if (verificationCode.isNotBlank()) EmptyCard("Kode Yang Harus Cocok", verificationCode)
         EmptyCard("Status", result)
+    }
+}
+
+@Composable
+private fun PairingQrCard(title: String, payload: String, helper: String) {
+    if (payload.isBlank()) return
+    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(CardBg), elevation = CardDefaults.cardElevation(1.dp)) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(title, color = Ink, fontWeight = FontWeight.Bold)
+            Surface(shape = RoundedCornerShape(18.dp), color = Color.White) {
+                Image(
+                    painter = rememberQrCodePainter(payload),
+                    contentDescription = title,
+                    modifier = Modifier.size(220.dp).padding(12.dp),
+                )
+            }
+            Text(helper, color = Muted, style = MaterialTheme.typography.bodySmall)
+        }
     }
 }
 
