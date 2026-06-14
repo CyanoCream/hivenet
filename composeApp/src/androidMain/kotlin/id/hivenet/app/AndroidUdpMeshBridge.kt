@@ -35,6 +35,9 @@ class AndroidUdpMeshBridge(context: Context) : MeshBridge {
     @Volatile private var resolvingNsd = false
     @Volatile private var running = false
     @Volatile private var lastEvent = "Stopped"
+    @Volatile private var p2pBroadcastAddress: String? = null
+
+    fun setP2pBroadcastAddress(address: String?) { p2pBroadcastAddress = address }
 
     override fun start(localPeerId: String): MeshBridgeResult = wrap {
         stopInternal()
@@ -81,9 +84,15 @@ class AndroidUdpMeshBridge(context: Context) : MeshBridge {
         require(frame.size <= MAX_PACKET_BYTES) { "Envelope terlalu besar: ${frame.size} bytes, max $MAX_PACKET_BYTES" }
         val packet = DatagramPacket(frame, frame.size, InetAddress.getByName(BROADCAST_ADDRESS), PORT)
         activeSocket.send(packet)
+        p2pBroadcastAddress?.let { p2pAddr ->
+            runCatching {
+                activeSocket.send(DatagramPacket(frame, frame.size, InetAddress.getByName(p2pAddr), PORT))
+            }
+        }
         val tcpTargets = tcpPeers.values.toList()
         tcpTargets.forEach { address -> sendTcp(envelope, address) }
-        lastEvent = "Broadcast UDP ${frame.size} bytes + TCP ${tcpTargets.size} peers as $localPeerId"
+        val p2pTag = if (p2pBroadcastAddress != null) " + P2P" else ""
+        lastEvent = "Broadcast UDP${p2pTag} ${frame.size} bytes + TCP ${tcpTargets.size} peers as $localPeerId"
         lastEvent
     }
 

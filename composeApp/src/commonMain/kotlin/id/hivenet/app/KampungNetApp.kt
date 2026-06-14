@@ -1034,27 +1034,22 @@ private fun NewChoiceScreen(onBack: () -> Unit, onChat: () -> Unit, onGroup: () 
 
 @Composable
 private fun NewChatScreen(peers: List<Peer>, onBack: () -> Unit, onCreate: (Peer, String) -> Unit) {
-    var selectedPeerId by remember { mutableStateOf(peers.firstOrNull()?.id.orEmpty()) }
-    var first by remember { mutableStateOf("") }
-    val selectedPeer = peers.firstOrNull { it.id == selectedPeerId } ?: peers.firstOrNull()
-    FormScaffold("New Message", "Choose a contact", onBack) {
+    FormScaffold("New Message", "Tap a contact to start chatting", onBack) {
         Text("Contacts", color = Muted, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
         peers.forEach { peer ->
-            Surface(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { selectedPeerId = peer.id },
-                color = if (peer.id == selectedPeerId) PrimarySubtle else CardBg, tonalElevation = 1.dp) {
+            Surface(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { onCreate(peer, "") },
+                color = CardBg, tonalElevation = 1.dp) {
                 Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Avatar(peer.name.take(1), if (peer.id == selectedPeerId) Primary else Muted)
+                    Avatar(peer.name.take(1), Primary)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text(peer.name, color = Ink, fontWeight = FontWeight.Bold)
                         Text(peer.peerId, color = Muted, style = MaterialTheme.typography.bodySmall)
                     }
-                    if (peer.id == selectedPeerId) Text("Selected", color = Primary, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                    Text("→", color = Muted, style = MaterialTheme.typography.bodyMedium)
                 }
             }
         }
-        OutlinedTextField(first, { first = it }, Modifier.fillMaxWidth().height(110.dp), label = { Text("First message (optional)") }, shape = RoundedCornerShape(14.dp))
-        PrimaryButton("Start Chat") { selectedPeer?.let { onCreate(it, first) } }
     }
 }
 
@@ -1454,25 +1449,24 @@ private fun HiveLogo(modifier: Modifier = Modifier) {
     val primaryColor = Primary
     Canvas(modifier.clip(CircleShape)) {
         drawCircle(primaryColor)
-        val cx = size.width * 0.5f
-        val cy = size.height * 0.5f
-        val outerR = size.width * 0.27f
-        val nodeR = size.width * 0.088f
-        val lineW = size.width * 0.042f
+        val w = size.width
+        val h = size.height
+        val leftX  = w * 0.306f
+        val rightX = w * 0.694f
+        val topY   = h * 0.241f
+        val midY   = h * 0.500f
+        val botY   = h * 0.759f
+        val strokeW = w * 0.079f
+        val nodeR   = w * 0.065f
+        val white = Color.White
 
-        val outerAngles = listOf(-90f, 30f, 150f)
-        val outerNodes = outerAngles.map { deg ->
-            val rad = (deg * Math.PI / 180.0).toFloat()
-            Offset(cx + outerR * cos(rad), cy + outerR * sin(rad))
-        }
-        val center = Offset(cx, cy)
+        drawLine(white, Offset(leftX,  topY), Offset(leftX,  botY), strokeW, StrokeCap.Round)
+        drawLine(white, Offset(rightX, topY), Offset(rightX, botY), strokeW, StrokeCap.Round)
+        drawLine(white, Offset(leftX,  midY), Offset(rightX, midY), strokeW, StrokeCap.Round)
 
-        (outerNodes + center).forEach { a ->
-            (outerNodes + center).forEach { b ->
-                if (a != b) drawLine(Color.White.copy(alpha = 0.35f), a, b, lineW * 0.9f, StrokeCap.Round)
-            }
-        }
-        outerNodes.forEach { node -> drawCircle(Color.White, nodeR, node) }
-        drawCircle(Color.White, nodeR * 1.15f, center)
+        listOf(
+            Offset(leftX,  topY), Offset(leftX,  botY), Offset(leftX,  midY),
+            Offset(rightX, topY), Offset(rightX, botY), Offset(rightX, midY),
+        ).forEach { drawCircle(white, nodeR, it) }
     }
 }
