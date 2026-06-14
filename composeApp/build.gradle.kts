@@ -6,6 +6,8 @@ plugins {
 }
 
 kotlin {
+    jvmToolchain(17)
+
     androidTarget()
 
     listOf(
@@ -35,14 +37,19 @@ kotlin {
 }
 
 android {
-    namespace = "id.kampungnet.app"
+    namespace = "id.hivenet.app"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "id.kampungnet.app"
+        applicationId = "id.hivenet.app"
         minSdk = 26
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 }

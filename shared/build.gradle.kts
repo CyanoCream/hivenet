@@ -6,6 +6,8 @@ plugins {
 }
 
 kotlin {
+    jvmToolchain(17)
+
     androidTarget()
 
     iosX64()
@@ -29,18 +31,23 @@ kotlin {
 }
 
 android {
-    namespace = "id.kampungnet.shared"
+    namespace = "id.hivenet.shared"
     compileSdk = 35
 
     defaultConfig {
         minSdk = 26
     }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
 }
 
 sqldelight {
     databases {
-        create("KampungNetDatabase") {
-            packageName.set("id.kampungnet.db")
+        create("HiveNetDatabase") {
+            packageName.set("id.hivenet.db")
         }
     }
 }
