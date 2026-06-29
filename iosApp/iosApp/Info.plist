@@ -5,7 +5,7 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>$(DEVELOPMENT_LANGUAGE)</string>
     <key>CFBundleDisplayName</key>
-    <string>KampungNet</string>
+    <string>HiveNet</string>
     <key>CFBundleExecutable</key>
     <string>$(EXECUTABLE_NAME)</string>
     <key>CFBundleIdentifier</key>
@@ -23,11 +23,11 @@
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.social-networking</string>
     <key>NSBluetoothAlwaysUsageDescription</key>
-    <string>KampungNet memakai Bluetooth untuk menemukan perangkat sekitar dan meneruskan pesan mesh terenkripsi.</string>
+    <string>HiveNet memakai Bluetooth untuk menemukan perangkat sekitar dan meneruskan pesan mesh terenkripsi.</string>
     <key>NSBluetoothPeripheralUsageDescription</key>
-    <string>KampungNet memakai Bluetooth untuk menjadi node relay mesh di sekitar Anda.</string>
+    <string>HiveNet memakai Bluetooth untuk menjadi node relay mesh di sekitar Anda.</string>
     <key>NSLocalNetworkUsageDescription</key>
-    <string>KampungNet memakai jaringan lokal untuk menemukan dan menghubungkan perangkat tanpa internet.</string>
+    <string>HiveNet memakai jaringan lokal untuk menemukan dan menghubungkan perangkat tanpa internet.</string>
     <key>NSBonjourServices</key>
     <array>
         <string>_kampungnet._tcp</string>

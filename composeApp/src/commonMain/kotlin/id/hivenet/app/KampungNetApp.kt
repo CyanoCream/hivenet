@@ -28,7 +28,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.activity.compose.BackHandler
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -263,16 +262,10 @@ fun KampungNetApp(
     val encryptedChatRepository = chatRepository ?: remember {
         runCatching { EncryptedChatRepository(createHiveNetDatabase()) }.getOrNull()
     }
-    val peers = remember {
-        listOf(
-            Peer("pak-rt", "Pak RT", "12D3KooWRt"),
-            Peer("pos-ronda", "Pos Ronda", "9xQmNeru72"),
-            Peer("ibu-sari", "Ibu Sari", "7aBLeuP44k"),
-            Peer("karang-taruna", "Karang Taruna", "8mQTaruna22")
-        )
-    }
+    val peers = remember { emptyList<Peer>() }
     var screen by remember { mutableStateOf(Screen.Home) }
     var selectedThreadId by remember { mutableStateOf<String?>(null) }
+    var pendingThread by remember { mutableStateOf<ChatThread?>(null) }
     var selectedEncryptedPeerId by remember { mutableStateOf<String?>(null) }
     var roomTab by remember { mutableStateOf(RoomTab.Chat) }
     var showSosSheet by remember { mutableStateOf(false) }
@@ -280,35 +273,15 @@ fun KampungNetApp(
     var nextThreadId by remember { mutableStateOf(1) }
     var nextMessageId by remember { mutableStateOf(100) }
     var nextHtId by remember { mutableStateOf(1) }
-    val threads = remember {
-        mutableStateListOf(
-            ChatThread(
-                id = BROADCAST_ID,
-                name = "Community Broadcast",
-                peerId = "/kampungnet/v1/chat",
-                group = true,
-                members = listOf(
-                    Member(ME_ID, "Me", "local-device", true),
-                    Member("pak-rt", "Pak RT", "12D3KooWRt", true),
-                    Member("pos-ronda", "Pos Ronda", "9xQmNeru72")
-                ),
-                messages = listOf(
-                    ChatMessage(1, "Pak RT", "Mesh router is online at the community hall.", "09:41", false, "relayed"),
-                    ChatMessage(2, "Me", "Ready, monitoring from here.", "09:43", true, "sent")
-                ),
-                htMessages = listOf(HtMessage(1, "Pak RT", 4, "09:45", false))
-            ),
-            ChatThread("pak-rt", "Pak RT", "12D3KooWRt", false, messages = listOf(ChatMessage(3, "Pak RT", "If the internet goes down, report it from here.", "09:38", false, "verified"))),
-            ChatThread("pos-ronda", "Pos Ronda", "9xQmNeru72", false, messages = listOf(ChatMessage(4, "Pos Ronda", "Three devices are nearby.", "09:28", false, "nearby")))
-        )
-    }
+    val threads = remember { mutableStateListOf<ChatThread>() }
 
     fun updateThread(id: String, block: (ChatThread) -> ChatThread) {
         val index = threads.indexOfFirst { it.id == id }
         if (index >= 0) threads[index] = block(threads[index])
     }
-    fun openThread(id: String, tab: RoomTab = RoomTab.Chat) { selectedThreadId = id; roomTab = tab; screen = Screen.Chat }
-    fun backHome() { screen = Screen.Home; selectedThreadId = null; selectedEncryptedPeerId = null; roomTab = RoomTab.Chat }
+    fun openThread(id: String, tab: RoomTab = RoomTab.Chat) { pendingThread = null; selectedThreadId = id; roomTab = tab; screen = Screen.Chat }
+    fun openPendingThread(thread: ChatThread, tab: RoomTab = RoomTab.Chat) { pendingThread = thread; selectedThreadId = null; roomTab = tab; screen = Screen.Chat }
+    fun backHome() { screen = Screen.Home; selectedThreadId = null; pendingThread = null; selectedEncryptedPeerId = null; roomTab = RoomTab.Chat }
     fun handleBack() {
         when {
             sosOverlay != null -> sosOverlay = null
@@ -319,22 +292,22 @@ fun KampungNetApp(
             screen != Screen.Home -> backHome()
         }
     }
-    fun selectedThread(): ChatThread? = selectedThreadId?.let { id -> threads.firstOrNull { it.id == id } }
+    fun selectedThread(): ChatThread? = pendingThread ?: selectedThreadId?.let { id -> threads.firstOrNull { it.id == id } }
 
     val darkMode = isSystemInDarkTheme()
     MaterialTheme(
         colorScheme = if (darkMode) darkColorScheme(primary = Primary, background = AppBg, surface = CardBg, onSurface = Ink, error = Danger)
                       else lightColorScheme(primary = Primary, background = AppBg, surface = CardBg, onSurface = Ink, error = Danger)
     ) {
-        BackHandler(enabled = screen != Screen.Home || showSosSheet || sosOverlay != null) { handleBack() }
+        PlatformBackHandler(enabled = screen != Screen.Home || showSosSheet || sosOverlay != null) { handleBack() }
         Box(Modifier.fillMaxSize().background(AppBg).navigationBarsPadding()) {
             when (screen) {
-                Screen.Home -> HomeScreen(threads, onOpen = ::openThread, onNewChat = { screen = Screen.NewChat }, onNewGroup = { screen = Screen.NewGroup }, onGlobalSos = { showSosSheet = true }, onCrypto = { screen = Screen.CryptoDebug }, onPair = { screen = Screen.PairContact }, onEncryptedChat = { screen = Screen.EncryptedChatList }, onMesh = { screen = Screen.MeshDebug })
+                Screen.Home -> HomeScreen(threads, onOpen = ::openThread, onDelete = { threadId -> threads.removeAll { it.id == threadId } }, onNewChat = { screen = Screen.NewChat }, onNewGroup = { screen = Screen.NewGroup }, onGlobalSos = { showSosSheet = true }, onCrypto = { screen = Screen.CryptoDebug }, onPair = { screen = Screen.PairContact }, onEncryptedChat = { screen = Screen.EncryptedChatList }, onMesh = { screen = Screen.MeshDebug })
                 Screen.NewChoice -> NewChoiceScreen(onBack = ::backHome, onChat = { screen = Screen.NewChat }, onGroup = { screen = Screen.NewGroup })
                 Screen.NewChat -> NewChatScreen(peers, onBack = ::backHome) { peer, first ->
                     val id = "direct-${nextThreadId++}"
-                    threads.add(0, ChatThread(id, peer.name, peer.peerId, false, messages = if (first.isBlank()) emptyList() else listOf(ChatMessage(nextMessageId++, "Me", first.trim(), "Just now", true, "queued"))))
-                    openThread(id)
+                    val thread = ChatThread(id, peer.name, peer.peerId, false, messages = if (first.isBlank()) emptyList() else listOf(ChatMessage(nextMessageId++, "Me", first.trim(), "Just now", true, "queued")))
+                    if (thread.messages.isEmpty()) openPendingThread(thread) else { threads.add(0, thread); openThread(id) }
                 }
                 Screen.NewGroup -> NewGroupScreen(peers, onBack = ::backHome) { name, chosen ->
                     val id = "group-${nextThreadId++}"
@@ -346,7 +319,18 @@ fun KampungNetApp(
                     val thread = selectedThread()
                     if (thread == null) backHome() else ChatScreen(
                         thread = thread, tab = roomTab, onTab = { roomTab = it }, onBack = ::backHome, onInfo = { screen = Screen.GroupInfo },
-                        onSend = { body -> updateThread(thread.id) { it.copy(messages = it.messages + ChatMessage(nextMessageId++, "Me", body, "Just now", true, if (it.group) "sent" else "sent")) } },
+                        onSend = { body ->
+                            val message = ChatMessage(nextMessageId++, "Me", body, "Just now", true, if (thread.group) "sent" else "sent")
+                            if (pendingThread?.id == thread.id) {
+                                val saved = thread.copy(messages = thread.messages + message)
+                                threads.add(0, saved)
+                                pendingThread = null
+                                selectedThreadId = saved.id
+                            } else {
+                                updateThread(thread.id) { it.copy(messages = it.messages + message) }
+                            }
+                        },
+                        onDeleteMessage = { messageId -> updateThread(thread.id) { it.copy(messages = it.messages.filterNot { message -> message.id == messageId }) } },
                         onSos = { showSosSheet = true },
                         onPeerSos = { sosOverlay = SOSOverlayState(thread.name, thread.peerId, "Incoming SOS from ${thread.name}.") },
                         onHtSend = { updateThread(thread.id) { it.copy(htMessages = it.htMessages + HtMessage(nextHtId++, "Me", 3 + (nextHtId % 5), "Just now", true)) } },
@@ -388,6 +372,7 @@ fun KampungNetApp(
 private fun HomeScreen(
     threads: List<ChatThread>,
     onOpen: (String) -> Unit,
+    onDelete: (String) -> Unit,
     onNewChat: () -> Unit,
     onNewGroup: () -> Unit,
     onGlobalSos: () -> Unit,
@@ -397,15 +382,25 @@ private fun HomeScreen(
     onMesh: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
+    var searchOpen by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf(ThreadFilter.All) }
     val currentUserName = threads.firstOrNull { it.id == BROADCAST_ID }?.members?.firstOrNull { it.id == ME_ID }?.name ?: "Me"
-    val visibleThreads = when (filter) {
+    val filteredThreads = when (filter) {
         ThreadFilter.All -> threads
         ThreadFilter.Groups -> threads.filter { it.group }
         ThreadFilter.Personal -> threads.filterNot { it.group }
     }
+    val query = searchQuery.trim()
+    val visibleThreads = if (query.isBlank()) filteredThreads else filteredThreads.filter { thread ->
+        thread.name.contains(query, ignoreCase = true) ||
+            thread.peerId.contains(query, ignoreCase = true) ||
+            thread.members.any { it.name.contains(query, ignoreCase = true) || it.peerId.contains(query, ignoreCase = true) } ||
+            thread.messages.any { it.sender.contains(query, ignoreCase = true) || it.body.contains(query, ignoreCase = true) }
+    }
 
-    Column(Modifier.fillMaxSize().background(AppBg)) {
+    Box(Modifier.fillMaxSize().background(AppBg)) {
+        Column(Modifier.fillMaxSize()) {
         // Header
         Column(
             Modifier.fillMaxWidth().background(CardBg).statusBarsPadding()
@@ -413,8 +408,6 @@ private fun HomeScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                HiveLogo(Modifier.size(44.dp))
-                Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text("HiveNet", color = Ink, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     Text(currentUserName, color = Muted, style = MaterialTheme.typography.bodySmall)
@@ -438,6 +431,7 @@ private fun HomeScreen(
                         }
                     }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        DropdownMenuItem(text = { Text("Search") }, onClick = { menuOpen = false; searchOpen = true })
                         DropdownMenuItem(text = { Text("New Message") }, onClick = { menuOpen = false; onNewChat() })
                         DropdownMenuItem(text = { Text("New Group") }, onClick = { menuOpen = false; onNewGroup() })
                         DropdownMenuItem(text = { Text("Add Contact") }, onClick = { menuOpen = false; onPair() })
@@ -447,6 +441,25 @@ private fun HomeScreen(
                     }
                 }
             }
+            if (searchOpen) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("Search chats or contacts") },
+                    singleLine = true,
+                    trailingIcon = {
+                        Text(
+                            "×",
+                            color = Muted,
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.clip(CircleShape).clickable { searchQuery = ""; searchOpen = false }.padding(horizontal = 12.dp, vertical = 4.dp)
+                        )
+                    },
+                    shape = RoundedCornerShape(999.dp)
+                )
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip("All", filter == ThreadFilter.All, Modifier.weight(1f)) { filter = ThreadFilter.All }
                 FilterChip("Groups", filter == ThreadFilter.Groups, Modifier.weight(1f)) { filter = ThreadFilter.Groups }
@@ -454,12 +467,22 @@ private fun HomeScreen(
             }
         }
 
-        LazyColumn(
-            Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            LazyColumn(
+                Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                items(visibleThreads, key = { it.id }) { ChatRow(it, onDelete = { onDelete(it.id) }) { onOpen(it.id) } }
+            }
+        }
+        Surface(
+            Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(20.dp).size(56.dp).clip(CircleShape).clickable(onClick = onNewChat),
+            color = Primary,
+            shadowElevation = 8.dp
         ) {
-            items(visibleThreads, key = { it.id }) { ChatRow(it) { onOpen(it.id) } }
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("+", color = Color.White, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            }
         }
     }
 }
@@ -1036,6 +1059,9 @@ private fun NewChoiceScreen(onBack: () -> Unit, onChat: () -> Unit, onGroup: () 
 private fun NewChatScreen(peers: List<Peer>, onBack: () -> Unit, onCreate: (Peer, String) -> Unit) {
     FormScaffold("New Message", "Tap a contact to start chatting", onBack) {
         Text("Contacts", color = Muted, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+        if (peers.isEmpty()) {
+            InfoCard("No contacts yet", "Use Add Contact to pair a device first.")
+        }
         peers.forEach { peer ->
             Surface(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { onCreate(peer, "") },
                 color = CardBg, tonalElevation = 1.dp) {
@@ -1056,10 +1082,13 @@ private fun NewChatScreen(peers: List<Peer>, onBack: () -> Unit, onCreate: (Peer
 @Composable
 private fun NewGroupScreen(peers: List<Peer>, onBack: () -> Unit, onCreate: (String, List<Peer>) -> Unit) {
     var name by remember { mutableStateOf("") }
-    val selected = remember { mutableStateListOf(peers[0], peers[1]) }
+    val selected = remember { mutableStateListOf<Peer>() }
     FormScaffold("New Group", "You are the admin", onBack) {
         OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text("Group name") }, placeholder = { Text("e.g. RT 05 Warga") }, singleLine = true, shape = RoundedCornerShape(14.dp))
         Text("Invite members", color = Muted, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+        if (peers.isEmpty()) {
+            InfoCard("No contacts yet", "Use Add Contact to pair a device first.")
+        }
         peers.forEach { peer -> SelectablePeer(peer, selected.any { it.id == peer.id }) { checked -> if (checked) selected.add(peer) else selected.removeAll { it.id == peer.id } } }
         PrimaryButton("Create Group (${selected.size + 1} members)") { onCreate(name, selected.toList()) }
     }
@@ -1068,7 +1097,7 @@ private fun NewGroupScreen(peers: List<Peer>, onBack: () -> Unit, onCreate: (Str
 // ── Chat screen ───────────────────────────────────────────────────────────────
 
 @Composable
-private fun ChatScreen(thread: ChatThread, tab: RoomTab, onTab: (RoomTab) -> Unit, onBack: () -> Unit, onInfo: () -> Unit, onSend: (String) -> Unit, onSos: () -> Unit, onPeerSos: () -> Unit, onHtSend: () -> Unit, onHtReply: () -> Unit) {
+private fun ChatScreen(thread: ChatThread, tab: RoomTab, onTab: (RoomTab) -> Unit, onBack: () -> Unit, onInfo: () -> Unit, onSend: (String) -> Unit, onDeleteMessage: (Int) -> Unit, onSos: () -> Unit, onPeerSos: () -> Unit, onHtSend: () -> Unit, onHtReply: () -> Unit) {
     var draft by remember(thread.id) { mutableStateOf("") }
     Column(Modifier.fillMaxSize()) {
         Header(thread.name, if (thread.group) "${thread.members.size} members" else shortPeerId(thread.peerId), onBack, if (thread.group) "Info" else null, onInfo)
@@ -1077,7 +1106,7 @@ private fun ChatScreen(thread: ChatThread, tab: RoomTab, onTab: (RoomTab) -> Uni
             RoomTab.Chat -> Column(Modifier.weight(1f)) {
                 LazyColumn(Modifier.weight(1f).padding(horizontal = 12.dp), contentPadding = PaddingValues(top = 12.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     if (thread.messages.isEmpty()) item { InfoCard("No messages yet", "Send the first message below.") }
-                    items(thread.messages, key = { it.id }) { MessageBubble(it) }
+                    items(thread.messages, key = { it.id }) { MessageBubble(it, onDelete = { onDeleteMessage(it.id) }) }
                 }
                 Row(Modifier.fillMaxWidth().background(CardBg).imePadding().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                     ComposerField(draft, { draft = it }, "Message…", Modifier.weight(1f))
@@ -1211,8 +1240,9 @@ private fun BigAction(title: String, subtitle: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun ChatRow(thread: ChatThread, onClick: () -> Unit) {
+private fun ChatRow(thread: ChatThread, onDelete: () -> Unit, onClick: () -> Unit) {
     val last = thread.messages.lastOrNull()
+    var menuOpen by remember { mutableStateOf(false) }
     Surface(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable(onClick = onClick), color = if (thread.blacklisted) Color(0xFFFFF1F2) else CardBg, tonalElevation = 0.dp) {
         Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Box {
@@ -1226,6 +1256,15 @@ private fun ChatRow(thread: ChatThread, onClick: () -> Unit) {
                     Text(last?.time.orEmpty(), color = Muted, style = MaterialTheme.typography.bodySmall)
                 }
                 Text(last?.body ?: "No messages yet", color = Muted, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Spacer(Modifier.width(8.dp))
+            Box {
+                Surface(Modifier.size(36.dp).clip(RoundedCornerShape(10.dp)).clickable { menuOpen = true }, color = AppBg) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("⋮", color = Muted, fontWeight = FontWeight.Bold) }
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(text = { Text("Delete chat") }, onClick = { menuOpen = false; onDelete() })
+                }
             }
         }
     }
@@ -1312,17 +1351,23 @@ private fun MemberRow(member: Member) {
 }
 
 @Composable
-private fun MessageBubble(message: ChatMessage) {
+private fun MessageBubble(message: ChatMessage, onDelete: () -> Unit) {
+    var menuOpen by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (message.outgoing) Arrangement.End else Arrangement.Start) {
-        Surface(
-            color = if (message.outgoing) Primary else CardBg,
-            shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = if (message.outgoing) 18.dp else 4.dp, bottomEnd = if (message.outgoing) 4.dp else 18.dp),
-            modifier = Modifier.fillMaxWidth(.78f)
-        ) {
-            Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                if (!message.outgoing) Text(message.sender, color = Primary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
-                Text(message.body, color = if (message.outgoing) Color.White else Ink, style = MaterialTheme.typography.bodyMedium)
-                Text("${message.time}  ${message.status}", color = if (message.outgoing) Color.White.copy(alpha = .65f) else Muted, style = MaterialTheme.typography.bodySmall)
+        Box(Modifier.fillMaxWidth(.78f)) {
+            Surface(
+                color = if (message.outgoing) Primary else CardBg,
+                shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = if (message.outgoing) 18.dp else 4.dp, bottomEnd = if (message.outgoing) 4.dp else 18.dp),
+                modifier = Modifier.fillMaxWidth().clickable { menuOpen = true }
+            ) {
+                Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    if (!message.outgoing) Text(message.sender, color = Primary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
+                    Text(message.body, color = if (message.outgoing) Color.White else Ink, style = MaterialTheme.typography.bodyMedium)
+                    Text("${message.time}  ${message.status}", color = if (message.outgoing) Color.White.copy(alpha = .65f) else Muted, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                DropdownMenuItem(text = { Text("Delete message") }, onClick = { menuOpen = false; onDelete() })
             }
         }
     }
