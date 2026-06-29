@@ -30,8 +30,8 @@
     <string>HiveNet memakai jaringan lokal untuk menemukan dan menghubungkan perangkat tanpa internet.</string>
     <key>NSBonjourServices</key>
     <array>
-        <string>_kampungnet._tcp</string>
-        <string>_kampungnet._udp</string>
+        <string>_hivenet._tcp</string>
+        <string>_hivenet._udp</string>
     </array>
     <key>NSCameraUsageDescription</key>
     <string>Kamera dipakai untuk scan QR pairing kontak aman.</string>

@@ -6,7 +6,7 @@ import ComposeApp
 final class IosMeshBridge: NSObject, MeshBridge {
     static let shared = IosMeshBridge()
 
-    private let serviceType = "kampungnet"
+    private let serviceType = "hivenet"
     private var peerID: MCPeerID?
     private var session: MCSession?
     private var advertiser: MCNearbyServiceAdvertiser?
@@ -140,7 +140,7 @@ final class IosMeshBridge: NSObject, MeshBridge {
             listener.start(queue: .main)
             tcpListener = listener
 
-            let service = NetService(domain: "local.", type: "_kampungnet._tcp.", name: localPeerId, port: Int32(IosMeshBridge.tcpPort))
+            let service = NetService(domain: "local.", type: "_hivenet._tcp.", name: localPeerId, port: Int32(IosMeshBridge.tcpPort))
             service.includesPeerToPeer = true
             service.publish()
             netService = service
@@ -148,7 +148,7 @@ final class IosMeshBridge: NSObject, MeshBridge {
             let browser = NetServiceBrowser()
             browser.includesPeerToPeer = true
             browser.delegate = self
-            browser.searchForServices(ofType: "_kampungnet._tcp.", inDomain: "local.")
+            browser.searchForServices(ofType: "_hivenet._tcp.", inDomain: "local.")
             serviceBrowser = browser
         } catch {
             lastEvent = "TCP fallback failed: \(error.localizedDescription)"

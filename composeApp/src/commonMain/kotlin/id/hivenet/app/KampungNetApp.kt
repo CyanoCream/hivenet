@@ -66,6 +66,8 @@ import id.hivenet.shared.chat.ChatMessageItem
 import id.hivenet.shared.chat.ContactItem
 import id.hivenet.shared.chat.EncryptedChatRepository
 import id.hivenet.shared.db.createHiveNetDatabase
+import id.hivenet.shared.identity.LocalIdentity
+import id.hivenet.shared.identity.LocalIdentityRepository
 import id.hivenet.shared.time.SystemClock
 import io.github.alexzhirkevich.qrose.rememberQrCodePainter
 import kotlinx.coroutines.delay
@@ -99,7 +101,7 @@ private val PrimarySubtle: Color
 
 // ── Enums / models (unchanged) ───────────────────────────────────────────────
 
-private enum class Screen { Home, NewChoice, NewChat, NewGroup, Chat, GroupInfo, CryptoDebug, PairContact, EncryptedChatList, EncryptedChat, MeshDebug }
+private enum class Screen { Onboarding, Home, Profile, NewChoice, NewChat, NewGroup, Chat, GroupInfo, CryptoDebug, PairContact, EncryptedChatList, EncryptedChat, MeshDebug }
 private enum class RoomTab { Chat, Sos, Ht }
 private enum class ThreadFilter { All, Groups, Personal }
 
@@ -259,11 +261,14 @@ fun KampungNetApp(
     qrScannerBridge: QrScannerBridge? = null,
     chatRepository: EncryptedChatRepository? = null,
 ) {
+    val database = remember { runCatching { createHiveNetDatabase() }.getOrNull() }
     val encryptedChatRepository = chatRepository ?: remember {
-        runCatching { EncryptedChatRepository(createHiveNetDatabase()) }.getOrNull()
+        database?.let { EncryptedChatRepository(it) }
     }
+    val identityRepository = remember { database?.let { LocalIdentityRepository(it) } }
+    var localIdentity by remember { mutableStateOf(identityRepository?.get()) }
     val peers = remember { emptyList<Peer>() }
-    var screen by remember { mutableStateOf(Screen.Home) }
+    var screen by remember { mutableStateOf(if (localIdentity == null) Screen.Onboarding else Screen.Home) }
     var selectedThreadId by remember { mutableStateOf<String?>(null) }
     var pendingThread by remember { mutableStateOf<ChatThread?>(null) }
     var selectedEncryptedPeerId by remember { mutableStateOf<String?>(null) }
@@ -288,6 +293,7 @@ fun KampungNetApp(
             showSosSheet -> showSosSheet = false
             screen == Screen.GroupInfo -> screen = Screen.Chat
             screen == Screen.EncryptedChat -> screen = Screen.EncryptedChatList
+            screen == Screen.Profile -> backHome()
             screen == Screen.NewChat || screen == Screen.NewGroup || screen == Screen.NewChoice -> backHome()
             screen != Screen.Home -> backHome()
         }
@@ -299,10 +305,12 @@ fun KampungNetApp(
         colorScheme = if (darkMode) darkColorScheme(primary = Primary, background = AppBg, surface = CardBg, onSurface = Ink, error = Danger)
                       else lightColorScheme(primary = Primary, background = AppBg, surface = CardBg, onSurface = Ink, error = Danger)
     ) {
-        PlatformBackHandler(enabled = screen != Screen.Home || showSosSheet || sosOverlay != null) { handleBack() }
+        PlatformBackHandler(enabled = (screen != Screen.Home && screen != Screen.Onboarding) || showSosSheet || sosOverlay != null) { handleBack() }
         Box(Modifier.fillMaxSize().background(AppBg).navigationBarsPadding()) {
             when (screen) {
-                Screen.Home -> HomeScreen(threads, onOpen = ::openThread, onDelete = { threadId -> threads.removeAll { it.id == threadId } }, onNewChat = { screen = Screen.NewChat }, onNewGroup = { screen = Screen.NewGroup }, onGlobalSos = { showSosSheet = true }, onCrypto = { screen = Screen.CryptoDebug }, onPair = { screen = Screen.PairContact }, onEncryptedChat = { screen = Screen.EncryptedChatList }, onMesh = { screen = Screen.MeshDebug })
+                Screen.Onboarding -> OnboardingScreen(identityRepository, onCreated = { identity -> localIdentity = identity; screen = Screen.Home })
+                Screen.Home -> HomeScreen(threads, localIdentity, onOpen = ::openThread, onDelete = { threadId -> threads.removeAll { it.id == threadId } }, onNewChat = { screen = Screen.NewChat }, onNewGroup = { screen = Screen.NewGroup }, onGlobalSos = { showSosSheet = true }, onProfile = { screen = Screen.Profile }, onCrypto = { screen = Screen.CryptoDebug }, onPair = { screen = Screen.PairContact }, onEncryptedChat = { screen = Screen.EncryptedChatList }, onMesh = { screen = Screen.MeshDebug })
+                Screen.Profile -> ProfileScreen(localIdentity, identityRepository, onBack = ::backHome, onSaved = { localIdentity = it })
                 Screen.NewChoice -> NewChoiceScreen(onBack = ::backHome, onChat = { screen = Screen.NewChat }, onGroup = { screen = Screen.NewGroup })
                 Screen.NewChat -> NewChatScreen(peers, onBack = ::backHome) { peer, first ->
                     val id = "direct-${nextThreadId++}"
@@ -366,16 +374,105 @@ fun KampungNetApp(
     }
 }
 
+// ── Onboarding / Profile ──────────────────────────────────────────────────────
+
+@Composable
+private fun OnboardingScreen(repository: LocalIdentityRepository?, onCreated: (LocalIdentity) -> Unit) {
+    var name by remember { mutableStateOf("") }
+    var role by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    Column(
+        Modifier.fillMaxSize().background(AppBg).statusBarsPadding().verticalScroll(rememberScrollState()).padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text("Buat Identitas HiveNet", color = Ink, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Text("Identitas ini dipakai sebagai nama awal saat pairing. Email opsional untuk backup nanti.", color = Muted)
+        OutlinedTextField(name, { name = it; error = null }, Modifier.fillMaxWidth(), label = { Text("Nama *") }, singleLine = true)
+        OutlinedTextField(role, { role = it }, Modifier.fillMaxWidth(), label = { Text("Jabatan / peran (opsional)") }, singleLine = true)
+        OutlinedTextField(email, { email = it }, Modifier.fillMaxWidth(), label = { Text("Email backup (opsional)") }, singleLine = true)
+        Text("Device label dibuat otomatis. Recovery code ditampilkan setelah identitas dibuat.", color = Muted, style = MaterialTheme.typography.bodySmall)
+        error?.let { Text(it, color = Danger, fontWeight = FontWeight.SemiBold) }
+        Button(
+            onClick = {
+                val repo = repository
+                when {
+                    repo == null -> error = "Database lokal belum siap."
+                    name.trim().isBlank() -> error = "Nama wajib diisi."
+                    else -> onCreated(repo.create(name, role, email))
+                }
+            },
+            modifier = Modifier.fillMaxWidth().height(48.dp),
+            shape = RoundedCornerShape(14.dp)
+        ) { Text("Buat Identitas") }
+    }
+}
+
+@Composable
+private fun ProfileScreen(identity: LocalIdentity?, repository: LocalIdentityRepository?, onBack: () -> Unit, onSaved: (LocalIdentity) -> Unit) {
+    var name by remember(identity?.peerId) { mutableStateOf(identity?.displayName.orEmpty()) }
+    var role by remember(identity?.peerId) { mutableStateOf(identity?.role.orEmpty()) }
+    var email by remember(identity?.peerId) { mutableStateOf(identity?.email.orEmpty()) }
+    var status by remember { mutableStateOf<String?>(null) }
+
+    Column(Modifier.fillMaxSize().background(AppBg).statusBarsPadding()) {
+        Row(Modifier.fillMaxWidth().background(CardBg).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("‹", color = Ink, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.clickable(onClick = onBack).padding(end = 12.dp))
+            Text("Profile", color = Ink, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        }
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            if (identity == null) {
+                Text("Identitas belum dibuat.", color = Danger)
+                Button(onBack) { Text("Kembali") }
+                return@Column
+            }
+            OutlinedTextField(name, { name = it; status = null }, Modifier.fillMaxWidth(), label = { Text("Nama") }, singleLine = true)
+            OutlinedTextField(role, { role = it; status = null }, Modifier.fillMaxWidth(), label = { Text("Jabatan / peran") }, singleLine = true)
+            OutlinedTextField(email, { email = it; status = null }, Modifier.fillMaxWidth(), label = { Text("Email backup") }, singleLine = true)
+            ProfileValue("Peer ID", identity.peerId)
+            ProfileValue("Device", identity.deviceLabel)
+            ProfileValue("Recovery code", identity.recoveryCode)
+            Text("Simpan recovery code. Versi ini baru menyimpan kode lokal; restore penuh identity/key belum aktif.", color = Amber, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+            status?.let { Text(it, color = if (it.startsWith("Saved")) Primary else Danger, fontWeight = FontWeight.SemiBold) }
+            Button(
+                onClick = {
+                    val repo = repository
+                    when {
+                        repo == null -> status = "Database lokal belum siap."
+                        name.trim().isBlank() -> status = "Nama wajib diisi."
+                        else -> repo.updateProfile(name, role, email)?.let { onSaved(it); status = "Saved." }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+                shape = RoundedCornerShape(14.dp)
+            ) { Text("Simpan Profile") }
+        }
+    }
+}
+
+@Composable
+private fun ProfileValue(label: String, value: String) {
+    Surface(Modifier.fillMaxWidth(), color = CardBg, shape = RoundedCornerShape(14.dp)) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(label, color = Muted, style = MaterialTheme.typography.bodySmall)
+            Text(value, color = Ink, fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
+
 // ── Home ──────────────────────────────────────────────────────────────────────
 
 @Composable
 private fun HomeScreen(
     threads: List<ChatThread>,
+    identity: LocalIdentity?,
     onOpen: (String) -> Unit,
     onDelete: (String) -> Unit,
     onNewChat: () -> Unit,
     onNewGroup: () -> Unit,
     onGlobalSos: () -> Unit,
+    onProfile: () -> Unit,
     onCrypto: () -> Unit,
     onPair: () -> Unit,
     onEncryptedChat: () -> Unit,
@@ -385,7 +482,7 @@ private fun HomeScreen(
     var searchOpen by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf(ThreadFilter.All) }
-    val currentUserName = threads.firstOrNull { it.id == BROADCAST_ID }?.members?.firstOrNull { it.id == ME_ID }?.name ?: "Me"
+    val currentUserName = identity?.displayName ?: threads.firstOrNull { it.id == BROADCAST_ID }?.members?.firstOrNull { it.id == ME_ID }?.name ?: "Me"
     val filteredThreads = when (filter) {
         ThreadFilter.All -> threads
         ThreadFilter.Groups -> threads.filter { it.group }
@@ -432,6 +529,7 @@ private fun HomeScreen(
                     }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                         DropdownMenuItem(text = { Text("Search") }, onClick = { menuOpen = false; searchOpen = true })
+                        DropdownMenuItem(text = { Text("Profile") }, onClick = { menuOpen = false; onProfile() })
                         DropdownMenuItem(text = { Text("New Message") }, onClick = { menuOpen = false; onNewChat() })
                         DropdownMenuItem(text = { Text("New Group") }, onClick = { menuOpen = false; onNewGroup() })
                         DropdownMenuItem(text = { Text("Add Contact") }, onClick = { menuOpen = false; onPair() })
