@@ -10,6 +10,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.view.WindowCompat
 import id.hivenet.shared.chat.EncryptedChatRepository
 import id.hivenet.shared.db.createHiveNetDatabase
+import id.hivenet.shared.identity.LocalIdentityRepository
 
 class MainActivity : ComponentActivity() {
 
@@ -20,7 +21,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
-        val chatRepository = EncryptedChatRepository(createHiveNetDatabase(applicationContext))
+        val database = createHiveNetDatabase(applicationContext)
+        val chatRepository = EncryptedChatRepository(database)
+        val identityRepository = LocalIdentityRepository(database)
         val cryptoBridge = AndroidCryptoBridge(applicationContext)
         meshBridge = AndroidUdpMeshBridge(applicationContext)
 
@@ -38,6 +41,7 @@ class MainActivity : ComponentActivity() {
                 meshBridge = meshBridge,
                 qrScannerBridge = null,
                 chatRepository = chatRepository,
+                identityRepository = identityRepository,
             )
         }
     }

@@ -65,7 +65,6 @@ import androidx.compose.ui.unit.dp
 import id.hivenet.shared.chat.ChatMessageItem
 import id.hivenet.shared.chat.ContactItem
 import id.hivenet.shared.chat.EncryptedChatRepository
-import id.hivenet.shared.db.createHiveNetDatabase
 import id.hivenet.shared.identity.LocalIdentity
 import id.hivenet.shared.identity.LocalIdentityRepository
 import id.hivenet.shared.time.SystemClock
@@ -260,12 +259,9 @@ fun KampungNetApp(
     meshBridge: MeshBridge? = null,
     qrScannerBridge: QrScannerBridge? = null,
     chatRepository: EncryptedChatRepository? = null,
+    identityRepository: LocalIdentityRepository? = null,
 ) {
-    val database = remember { runCatching { createHiveNetDatabase() }.getOrNull() }
-    val encryptedChatRepository = chatRepository ?: remember {
-        database?.let { EncryptedChatRepository(it) }
-    }
-    val identityRepository = remember { database?.let { LocalIdentityRepository(it) } }
+    val encryptedChatRepository = chatRepository
     var localIdentity by remember { mutableStateOf(identityRepository?.get()) }
     val peers = remember { emptyList<Peer>() }
     var screen by remember { mutableStateOf(if (localIdentity == null) Screen.Onboarding else Screen.Home) }
