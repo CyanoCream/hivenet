@@ -242,8 +242,8 @@ private fun relayReceiptPacketId(envelope: String): String = "relay-receipt-${st
 private fun meshPacketId(envelope: String): String = "mesh-${stableEnvelopeId(envelope)}"
 private fun chatSeenPacketId(payloadJson: String, envelope: String): String = chatPacketId(payloadJson) ?: meshPacketId(envelope)
 private fun receiptSeenPacketId(json: String, envelope: String): String = "receipt-${extractJsonValue(json, "packet_id") ?: meshPacketId(envelope)}-${extractJsonValue(json, "status") ?: "DELIVERED"}"
-private fun deliveryReceiptJson(packetId: String, senderPeerId: String, targetPeerId: String, timestamp: Long): String =
-    "{\"message_id\":\"${jsonEscape(packetId)}\",\"packet_id\":\"${jsonEscape(packetId)}\",\"sender_peer_id\":\"${jsonEscape(senderPeerId)}\",\"target_peer_id\":\"${jsonEscape(targetPeerId)}\",\"status\":\"DELIVERED\",\"timestamp\":$timestamp}"
+private fun deliveryReceiptJson(packetId: String, senderPeerId: String, targetPeerId: String, timestamp: Long, status: String = "DELIVERED"): String =
+    "{\"message_id\":\"${jsonEscape(packetId)}\",\"packet_id\":\"${jsonEscape(packetId)}\",\"sender_peer_id\":\"${jsonEscape(senderPeerId)}\",\"target_peer_id\":\"${jsonEscape(targetPeerId)}\",\"status\":\"${jsonEscape(status)}\",\"timestamp\":$timestamp}"
 
 private fun meshPeerCount(peersText: String): Int {
     val clean = peersText.trim()
@@ -862,6 +862,7 @@ private fun MeshDebugScreen(
                 if (senderPeerId == localId) { duplicates += 1; return@forEach }
                 repo.saveDeliveryReceipt(messageId, packetId, senderPeerId, targetPeerId, receiptStatus, receiptTimestamp)
                 if (targetPeerId == localId && receiptStatus == "DELIVERED") repo.markDeliveredFromReceipt(packetId, SystemClock.nowMillis())
+                if (targetPeerId == localId && receiptStatus == "READ") repo.markReadFromReceipt(packetId, SystemClock.nowMillis())
                 if (targetPeerId != localId) { repo.saveRelayReceiptPacket(relayReceiptPacketId(receipt.envelope), receipt.fromPeerId, targetPeerId, json, SystemClock.nowMillis()); receiptRelays += 1 }
                 deliveryReceipts += 1
             }
@@ -1060,6 +1061,23 @@ private fun EncryptedChatScreen(cryptoBridge: CryptoBridge?, meshBridge: MeshBri
         lastRefreshText = "${messages.size} messages"
     }
 
+    fun markThreadReadAndNotify(): String? {
+        val repo = repository ?: return null
+        val peerId = contactPeerId.trim()
+        if (peerId.isBlank()) return null
+        val now = SystemClock.nowMillis()
+        val packetIds = repo.markIncomingThreadRead(peerId, now)
+        if (packetIds.isEmpty()) return null
+        val bridge = meshBridge ?: return "Read locally. Mesh not started, read receipt not sent."
+        var sent = 0
+        packetIds.distinct().forEach { packetId ->
+            val receiptJson = deliveryReceiptJson(packetId, localPeerId.trim().ifBlank { "local-device" }, peerId, now, status = "READ")
+            val env = encodeReceiptEnvelope(receiptJson)
+            if (meshEnvelopeSizeError(env) == null && bridge.broadcast(env).ok) sent += 1
+        }
+        return "Read receipts sent: $sent/${packetIds.distinct().size}."
+    }
+
     fun statusLabel(value: String): String = when (value) {
         "QUEUED" -> "Queued"; "BROADCASTED", "RELAYED" -> "Sent"; "DELIVERED" -> "Delivered"
         "READ" -> "Read"; "DECRYPTED" -> "Received"; else -> value
@@ -1084,7 +1102,7 @@ private fun EncryptedChatScreen(cryptoBridge: CryptoBridge?, meshBridge: MeshBri
         return if (failed == null) "Sent $sent messages." else "Partial. sent=$sent, failed=$failed"
     }
 
-    LaunchedEffect(contactPeerId) { refreshMessages() }
+    LaunchedEffect(contactPeerId) { markThreadReadAndNotify()?.let { status = it }; refreshMessages() }
     LaunchedEffect(initialContactPeerId) { if (!initialContactPeerId.isNullOrBlank()) contactPeerId = initialContactPeerId }
     LaunchedEffect(contactPeerId, repository) { while (repository != null) { refreshMessages(); delay(5_000) } }
 
@@ -1116,7 +1134,7 @@ private fun EncryptedChatScreen(cryptoBridge: CryptoBridge?, meshBridge: MeshBri
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 contacts.take(3).forEach { contact ->
                     ContactPill(contact, selected = contact.peerId == contactPeerId, modifier = Modifier.weight(1f)) {
-                        contactPeerId = contact.peerId; refreshMessages()
+                        contactPeerId = contact.peerId; markThreadReadAndNotify()?.let { status = it }; refreshMessages()
                         status = "Selected ${contact.displayName}."
                     }
                 }

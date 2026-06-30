@@ -365,6 +365,23 @@ class EncryptedChatRepository(
         }
     }
 
+    fun markReadFromReceipt(packetId: String, nowMillis: Long) {
+        database.meshQueries.markChatMessageReadForOutbox(
+            value = nowMillis,
+            read_at = nowMillis,
+            packet_id = packetId,
+        )
+    }
+
+    fun markIncomingThreadRead(threadPeerId: String, nowMillis: Long): List<String> {
+        val receiptPacketIds = database.meshQueries.getUnreadIncomingReceiptPacketsForThread(threadPeerId).executeAsList()
+        database.meshQueries.markIncomingThreadRead(
+            read_at = nowMillis,
+            thread_peer_id = threadPeerId,
+        )
+        return receiptPacketIds
+    }
+
     fun hasSeenMeshPacket(packetId: String, nowMillis: Long): Boolean =
         database.meshQueries.hasSeenMeshPacket(packetId, nowMillis).executeAsOneOrNull() != null
 

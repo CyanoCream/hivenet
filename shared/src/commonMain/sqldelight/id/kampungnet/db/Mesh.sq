@@ -230,6 +230,29 @@ WHERE message_id = (
   WHERE packet_id = ?
 );
 
+markChatMessageReadForOutbox:
+UPDATE chat_messages
+SET status = 'READ', delivered_at = COALESCE(delivered_at, ?), read_at = ?
+WHERE message_id = (
+  SELECT message_id FROM outbox_packets
+  WHERE packet_id = ?
+);
+
+getUnreadIncomingReceiptPacketsForThread:
+SELECT delivery_receipts.packet_id
+FROM chat_messages
+JOIN delivery_receipts ON delivery_receipts.message_id = chat_messages.message_id
+WHERE chat_messages.thread_peer_id = ?
+  AND chat_messages.outgoing = 0
+  AND chat_messages.read_at IS NULL;
+
+markIncomingThreadRead:
+UPDATE chat_messages
+SET status = 'READ', read_at = ?
+WHERE thread_peer_id = ?
+  AND outgoing = 0
+  AND read_at IS NULL;
+
 markChatMessageBroadcastedForOutbox:
 UPDATE chat_messages
 SET status = 'BROADCASTED'
