@@ -1,5 +1,7 @@
 package id.hivenet.app
 
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.text.BasicTextField
@@ -40,6 +42,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
@@ -100,7 +103,7 @@ private val PrimarySubtle: Color
 
 // ── Enums / models (unchanged) ───────────────────────────────────────────────
 
-private enum class Screen { Welcome, Onboarding, Home, Profile, NewChoice, NewChat, NewGroup, Chat, GroupInfo, CryptoDebug, PairContact, EncryptedChatList, EncryptedChat, MeshDebug }
+private enum class Screen { Welcome, Onboarding, Home, Settings, Profile, NewChoice, NewChat, NewGroup, Chat, GroupInfo, CryptoDebug, PairContact, EncryptedChatList, EncryptedChat, MeshDebug }
 private enum class RoomTab { Chat, Sos, Ht }
 private enum class ThreadFilter { All, Groups, Personal }
 
@@ -268,6 +271,7 @@ fun KampungNetApp(
     var selectedThreadId by remember { mutableStateOf<String?>(null) }
     var pendingThread by remember { mutableStateOf<ChatThread?>(null) }
     var selectedEncryptedPeerId by remember { mutableStateOf<String?>(null) }
+    var animationsEnabled by remember { mutableStateOf(true) }
     var roomTab by remember { mutableStateOf(RoomTab.Chat) }
     var showSosSheet by remember { mutableStateOf(false) }
     var sosOverlay by remember { mutableStateOf<SOSOverlayState?>(null) }
@@ -304,13 +308,16 @@ fun KampungNetApp(
     ) {
         PlatformBackHandler(enabled = (screen != Screen.Home && screen != Screen.Welcome) || showSosSheet || sosOverlay != null) { handleBack() }
         Box(Modifier.fillMaxSize().background(AppBg).navigationBarsPadding()) {
-            when (screen) {
+            @Composable
+            fun renderScreen(activeScreen: Screen) {
+            when (activeScreen) {
                 Screen.Welcome -> WelcomeScreen(onRegister = { screen = Screen.Onboarding })
                 Screen.Onboarding -> OnboardingScreen(identityRepository, onBack = { screen = Screen.Welcome }, onCreated = { identity -> localIdentity = identity; screen = Screen.Home })
-                Screen.Home -> HomeScreen(threads, localIdentity, onOpen = ::openThread, onDelete = { threadId -> threads.removeAll { it.id == threadId } }, onNewChat = { screen = Screen.NewChat }, onNewGroup = { screen = Screen.NewGroup }, onGlobalSos = { showSosSheet = true }, onProfile = { screen = Screen.Profile }, onCrypto = { screen = Screen.CryptoDebug }, onPair = { screen = Screen.PairContact }, onEncryptedChat = { screen = Screen.EncryptedChatList }, onMesh = { screen = Screen.MeshDebug })
+                Screen.Home -> HomeScreen(threads, localIdentity, onOpen = ::openThread, onDelete = { threadId -> threads.removeAll { it.id == threadId } }, onNewChat = { screen = Screen.NewChat }, onNewGroup = { screen = Screen.NewGroup }, onGlobalSos = { showSosSheet = true }, onSettings = { screen = Screen.Settings }, onProfile = { screen = Screen.Profile }, onCrypto = { screen = Screen.CryptoDebug }, onPair = { screen = Screen.PairContact }, onEncryptedChat = { screen = Screen.EncryptedChatList }, onMesh = { screen = Screen.MeshDebug })
+                Screen.Settings -> SettingsScreen(animationsEnabled, onAnimationsChanged = { animationsEnabled = it }, onBack = ::backHome, onProfile = { screen = Screen.Profile }, onPair = { screen = Screen.PairContact }, onMesh = { screen = Screen.MeshDebug })
                 Screen.Profile -> ProfileScreen(localIdentity, identityRepository, onBack = ::backHome, onSaved = { localIdentity = it })
                 Screen.NewChoice -> NewChoiceScreen(onBack = ::backHome, onChat = { screen = Screen.NewChat }, onGroup = { screen = Screen.NewGroup })
-                Screen.NewChat -> NewChatScreen(peers, onBack = ::backHome) { peer, first ->
+                Screen.NewChat -> NewChatScreen(peers, onBack = ::backHome, onAddContact = { screen = Screen.PairContact }) { peer, first ->
                     val id = "direct-${nextThreadId++}"
                     val thread = ChatThread(id, peer.name, peer.peerId, false, messages = if (first.isBlank()) emptyList() else listOf(ChatMessage(nextMessageId++, "Me", first.trim(), "Just now", true, "queued")))
                     if (thread.messages.isEmpty()) openPendingThread(thread) else { threads.add(0, thread); openThread(id) }
@@ -357,6 +364,8 @@ fun KampungNetApp(
                 Screen.EncryptedChat -> EncryptedChatScreen(cryptoBridge, meshBridge, encryptedChatRepository, initialContactPeerId = selectedEncryptedPeerId, onBack = { screen = Screen.EncryptedChatList })
                 Screen.MeshDebug -> MeshDebugScreen(cryptoBridge, meshBridge, encryptedChatRepository, onBack = ::backHome)
             }
+            }
+            if (animationsEnabled) Crossfade(targetState = screen, animationSpec = tween(180), label = "screen") { renderScreen(it) } else renderScreen(screen)
 
             if (showSosSheet) {
                 val target = selectedThread()
@@ -491,6 +500,36 @@ private fun ProfileValue(label: String, value: String) {
     }
 }
 
+@Composable
+private fun SettingsScreen(
+    animationsEnabled: Boolean,
+    onAnimationsChanged: (Boolean) -> Unit,
+    onBack: () -> Unit,
+    onProfile: () -> Unit,
+    onPair: () -> Unit,
+    onMesh: () -> Unit,
+) {
+    Column(Modifier.fillMaxSize()) {
+        Header("Settings", "App behavior and safety", onBack)
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Surface(Modifier.fillMaxWidth(), color = CardBg, shape = RoundedCornerShape(16.dp), tonalElevation = 1.dp) {
+                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Animasi halaman", color = Ink, fontWeight = FontWeight.Bold)
+                        Text("Matikan untuk HP lama agar transisi lebih ringan.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                    }
+                    Switch(checked = animationsEnabled, onCheckedChange = onAnimationsChanged)
+                }
+            }
+            Text("Shortcuts", color = Muted, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+            BigAction("Profile", "Nama, jabatan, email backup, recovery code", onProfile)
+            BigAction("Add Contact", "Pairing aman via QR atau token manual", onPair)
+            BigAction("Local Mesh", "Start/stop dan cek koneksi mesh lokal", onMesh)
+            InfoCard("Security", "Pairing memakai X25519 + HKDF-SHA256. Message body tidak dibackup default. Simpan recovery code di tempat aman.")
+        }
+    }
+}
+
 // ── Home ──────────────────────────────────────────────────────────────────────
 
 @Composable
@@ -502,6 +541,7 @@ private fun HomeScreen(
     onNewChat: () -> Unit,
     onNewGroup: () -> Unit,
     onGlobalSos: () -> Unit,
+    onSettings: () -> Unit,
     onProfile: () -> Unit,
     onCrypto: () -> Unit,
     onPair: () -> Unit,
@@ -559,6 +599,7 @@ private fun HomeScreen(
                     }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                         DropdownMenuItem(text = { Text("Search") }, onClick = { menuOpen = false; searchOpen = true })
+                        DropdownMenuItem(text = { Text("Settings") }, onClick = { menuOpen = false; onSettings() })
                         DropdownMenuItem(text = { Text("Profile") }, onClick = { menuOpen = false; onProfile() })
                         DropdownMenuItem(text = { Text("New Message") }, onClick = { menuOpen = false; onNewChat() })
                         DropdownMenuItem(text = { Text("New Group") }, onClick = { menuOpen = false; onNewGroup() })
@@ -1058,7 +1099,7 @@ private fun PairContactScreen(cryptoBridge: CryptoBridge?, qrScannerBridge: QrSc
     var verificationCode by remember { mutableStateOf("") }
     var pairingMode by remember { mutableStateOf("invite") }
     var showAdvanced by remember { mutableStateOf(false) }
-    var result by remember { mutableStateOf(if (cryptoBridge == null) "Pairing not available on this platform." else "Ready to pair via QR or paste.") }
+    var result by remember { mutableStateOf(if (cryptoBridge == null) "Pairing not available on this platform." else "Pilih Undang Kontak atau Scan Undangan.") }
 
     fun setResult(label: String, cryptoResult: CryptoBridgeResult, onSuccess: (String) -> Unit = {}) {
         if (cryptoResult.ok) { onSuccess(cryptoResult.value.orEmpty()); result = "$label succeeded" }
@@ -1082,30 +1123,30 @@ private fun PairContactScreen(cryptoBridge: CryptoBridge?, qrScannerBridge: QrSc
         result = "Paired! Contact saved: $peerId."
     }
 
-    FormScaffold("Add Contact", "QR pairing · E2EE keys", onBack) {
+    FormScaffold("Add Contact", "Pairing aman via QR · E2EE keys", onBack) {
         Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), color = CardBg, tonalElevation = 1.dp) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(localName, { localName = it }, Modifier.fillMaxWidth(), label = { Text("Your name") }, placeholder = { Text("e.g. Andi") }, singleLine = true, shape = RoundedCornerShape(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button({ pairingMode = "invite" }, Modifier.weight(1f).height(42.dp), shape = RoundedCornerShape(999.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = if (pairingMode == "invite") Primary else AppBg, contentColor = if (pairingMode == "invite") Color.White else Ink),
-                        elevation = ButtonDefaults.buttonElevation(0.dp)) { Text("Invite") }
+                        elevation = ButtonDefaults.buttonElevation(0.dp)) { Text("Undang Kontak") }
                     Button({ pairingMode = "receive" }, Modifier.weight(1f).height(42.dp), shape = RoundedCornerShape(999.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = if (pairingMode == "receive") Primary else AppBg, contentColor = if (pairingMode == "receive") Color.White else Ink),
-                        elevation = ButtonDefaults.buttonElevation(0.dp)) { Text("Receive") }
+                        elevation = ButtonDefaults.buttonElevation(0.dp)) { Text("Scan Undangan") }
                 }
             }
         }
 
         if (pairingMode == "invite") {
-            InfoCard("Step 1", "Create an invite QR and ask your contact to scan it.")
-            PrimaryButton("Create Invite QR") {
+            InfoCard("1. Buat undangan", "Tampilkan QR ini di HP kamu. HP teman pilih Scan Undangan lalu scan QR ini.")
+            PrimaryButton("Buat Invite QR") {
                 if (!missingBridge("Create invite")) setResult("Create invite", cryptoBridge!!.createPairingOffer(contactPeerId.trim(), localPeerId.trim(), localName.trim().ifBlank { "Me" })) { json -> offerEnvelope = encodePairingEnvelope("PAIRING_OFFER", json) }
             }
             PairingQrCard("Invite QR", offerEnvelope, "Show this to your contact.")
-            InfoCard("Step 2", "After your contact accepts, scan their response QR.")
-            OutlinedButton({ scanQr("Scan response") { token -> incomingAcceptance = token } }, Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(999.dp)) { Text("Scan Response QR") }
-            PrimaryButton("Complete Pairing", color = Color(0xFF10B981)) {
+            InfoCard("2. Scan response", "Setelah teman tap Terima Undangan, scan Response QR dari HP teman untuk menyelesaikan pairing.")
+            OutlinedButton({ scanQr("Scan response") { token -> incomingAcceptance = token } }, Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(999.dp)) { Text("Scan Response QR dari Teman") }
+            PrimaryButton("Selesaikan Pairing", color = Color(0xFF10B981)) {
                 if (!missingBridge("Complete pairing")) {
                     val aJson = decodePairingEnvelope(incomingAcceptance, "PAIRING_ACCEPT") ?: run { result = "Scan the response QR first."; return@PrimaryButton }
                     verificationCode = extractJsonValue(aJson, "verificationCode").orEmpty()
@@ -1115,9 +1156,9 @@ private fun PairContactScreen(cryptoBridge: CryptoBridge?, qrScannerBridge: QrSc
                 }
             }
         } else {
-            InfoCard("Step 1", "Scan the invite QR from your contact.")
-            OutlinedButton({ scanQr("Scan invite") { token -> incomingOffer = token } }, Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(999.dp)) { Text("Scan Invite QR") }
-            PrimaryButton("Accept Invite") {
+            InfoCard("1. Scan undangan", "Minta teman membuka Undang Kontak dan menampilkan Invite QR, lalu scan dari HP ini.")
+            OutlinedButton({ scanQr("Scan invite") { token -> incomingOffer = token } }, Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(999.dp)) { Text("Scan Invite QR dari Teman") }
+            PrimaryButton("Terima Undangan") {
                 if (!missingBridge("Accept invite")) {
                     val oJson = decodePairingEnvelope(incomingOffer, "PAIRING_OFFER") ?: run { result = "Scan the invite QR first."; return@PrimaryButton }
                     setResult("Accept invite", cryptoBridge!!.acceptPairingOffer(oJson, localPeerId.trim(), localName.trim().ifBlank { "Me" })) { aJson ->
@@ -1127,7 +1168,7 @@ private fun PairContactScreen(cryptoBridge: CryptoBridge?, qrScannerBridge: QrSc
                     }
                 }
             }
-            InfoCard("Step 2", "Show this QR to your contact to finish pairing.")
+            InfoCard("2. Tampilkan response", "Setelah diterima, tunjukkan Response QR ini ke teman. Teman scan untuk menyelesaikan pairing.")
             PairingQrCard("Response QR", acceptanceEnvelope, "Your contact scans this to complete.")
         }
 
@@ -1145,10 +1186,11 @@ private fun PairContactScreen(cryptoBridge: CryptoBridge?, qrScannerBridge: QrSc
         if (showAdvanced) {
             OutlinedTextField(localPeerId, { localPeerId = it }, Modifier.fillMaxWidth(), label = { Text("My peer ID") }, singleLine = true, shape = RoundedCornerShape(12.dp))
             OutlinedTextField(contactPeerId, { contactPeerId = it }, Modifier.fillMaxWidth(), label = { Text("Contact peer ID") }, singleLine = true, shape = RoundedCornerShape(12.dp))
-            OutlinedTextField(offerEnvelope, { offerEnvelope = it }, Modifier.fillMaxWidth().height(88.dp), label = { Text("Invite token") }, shape = RoundedCornerShape(12.dp))
-            OutlinedTextField(incomingOffer, { incomingOffer = it }, Modifier.fillMaxWidth().height(88.dp), label = { Text("Incoming invite") }, shape = RoundedCornerShape(12.dp))
-            OutlinedTextField(acceptanceEnvelope, { acceptanceEnvelope = it }, Modifier.fillMaxWidth().height(88.dp), label = { Text("Response token") }, shape = RoundedCornerShape(12.dp))
-            OutlinedTextField(incomingAcceptance, { incomingAcceptance = it }, Modifier.fillMaxWidth().height(88.dp), label = { Text("Incoming response") }, shape = RoundedCornerShape(12.dp))
+            InfoCard("Manual token", "Dipakai kalau kamera/QR bermasalah. HP pengundang salin invite token. HP penerima tempel sebagai invite dari teman, lalu salin response token. HP pengundang tempel sebagai response dari teman.")
+            OutlinedTextField(offerEnvelope, { offerEnvelope = it }, Modifier.fillMaxWidth().height(88.dp), label = { Text("Invite token dari HP ini") }, shape = RoundedCornerShape(12.dp))
+            OutlinedTextField(incomingOffer, { incomingOffer = it }, Modifier.fillMaxWidth().height(88.dp), label = { Text("Invite token dari teman") }, shape = RoundedCornerShape(12.dp))
+            OutlinedTextField(acceptanceEnvelope, { acceptanceEnvelope = it }, Modifier.fillMaxWidth().height(88.dp), label = { Text("Response token dari HP ini") }, shape = RoundedCornerShape(12.dp))
+            OutlinedTextField(incomingAcceptance, { incomingAcceptance = it }, Modifier.fillMaxWidth().height(88.dp), label = { Text("Response token dari teman") }, shape = RoundedCornerShape(12.dp))
         }
         InfoCard("Status", result)
     }
@@ -1184,8 +1226,15 @@ private fun NewChoiceScreen(onBack: () -> Unit, onChat: () -> Unit, onGroup: () 
 }
 
 @Composable
-private fun NewChatScreen(peers: List<Peer>, onBack: () -> Unit, onCreate: (Peer, String) -> Unit) {
+private fun NewChatScreen(peers: List<Peer>, onBack: () -> Unit, onAddContact: () -> Unit, onCreate: (Peer, String) -> Unit) {
     FormScaffold("New Message", "Tap a contact to start chatting", onBack) {
+        Surface(Modifier.fillMaxWidth(), color = PrimarySubtle, shape = RoundedCornerShape(16.dp)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Butuh kontak baru?", color = Ink, fontWeight = FontWeight.Bold)
+                Text("Pair device teman dulu via Add Contact, lalu mulai chat setelah kontak tersimpan.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                OutlinedButton(onClick = onAddContact, modifier = Modifier.fillMaxWidth().height(44.dp), shape = RoundedCornerShape(999.dp)) { Text("Add Contact") }
+            }
+        }
         Text("Contacts", color = Muted, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
         if (peers.isEmpty()) {
             InfoCard("No contacts yet", "Use Add Contact to pair a device first.")

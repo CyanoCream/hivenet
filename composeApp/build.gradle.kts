@@ -26,12 +26,15 @@ kotlin {
             implementation(project(":shared"))
             implementation(compose.runtime)
             implementation(compose.foundation)
+            implementation(compose.animation)
             implementation(compose.material3)
             implementation(compose.ui)
             implementation(libs.qrose)
         }
         androidMain.dependencies {
             implementation(libs.androidx.activity.compose)
+            implementation(libs.zxing.android.embedded)
+            implementation(libs.bouncycastle.provider)
         }
     }
 }

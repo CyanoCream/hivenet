@@ -25,6 +25,7 @@ class MainActivity : ComponentActivity() {
         val chatRepository = EncryptedChatRepository(database)
         val identityRepository = LocalIdentityRepository(database)
         val cryptoBridge = AndroidCryptoBridge(applicationContext)
+        val qrScannerBridge = AndroidQrScannerBridge(this)
         meshBridge = AndroidUdpMeshBridge(applicationContext)
 
         wifiDirectBridge = AndroidWifiDirectBridge(
@@ -39,7 +40,7 @@ class MainActivity : ComponentActivity() {
             KampungNetApp(
                 cryptoBridge = cryptoBridge,
                 meshBridge = meshBridge,
-                qrScannerBridge = null,
+                qrScannerBridge = qrScannerBridge,
                 chatRepository = chatRepository,
                 identityRepository = identityRepository,
             )
