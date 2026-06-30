@@ -137,9 +137,9 @@ private fun encodeReceiptEnvelope(json: String): String = "KNET1:RECEIPT:${json.
 
 private fun decodePairingEnvelope(input: String, expectedType: String): String? {
     val trimmed = input.trim()
-    if (trimmed.startsWith("{") && trimmed.contains("\"sessionId\"")) {
+    if (trimmed.startsWith("{") && trimmed.contains("\"sessionId\"", ignoreCase = true)) {
         val expectedKey = if (expectedType == "PAIRING_ACCEPT") "\"responderPeerId\"" else "\"senderPeerId\""
-        return if (trimmed.contains(expectedKey)) trimmed else null
+        return if (trimmed.contains(expectedKey, ignoreCase = true)) trimmed else null
     }
     val parts = trimmed.split(":", limit = 3)
     if (parts.size != 3 || parts[0] != "KNET1" || parts[1] != expectedType) return null
@@ -403,7 +403,7 @@ fun KampungNetApp(
                 Screen.CryptoDebug -> CryptoDebugScreen(cryptoBridge, onBack = ::backHome)
                 Screen.PairContact -> PairContactScreen(cryptoBridge, qrScannerBridge, encryptedChatRepository, identityRepository, onPaired = { contactVersion += 1 }, onBack = ::backHome)
                 Screen.EncryptedChatList -> EncryptedChatListScreen(encryptedChatRepository, onBack = ::backHome, onPair = { screen = Screen.PairContact }, onOpen = { peerId -> selectedEncryptedPeerId = peerId; screen = Screen.EncryptedChat })
-                Screen.EncryptedChat -> EncryptedChatScreen(cryptoBridge, meshBridge, encryptedChatRepository, initialContactPeerId = selectedEncryptedPeerId, onBack = { screen = Screen.EncryptedChatList })
+                Screen.EncryptedChat -> EncryptedChatScreen(cryptoBridge, meshBridge, encryptedChatRepository, identityRepository, initialContactPeerId = selectedEncryptedPeerId, onBack = { screen = Screen.EncryptedChatList })
                 Screen.MeshDebug -> MeshDebugScreen(cryptoBridge, meshBridge, notificationBridge, notificationsEnabled, notificationPreviewEnabled, encryptedChatRepository, onBack = ::backHome)
             }
             }
@@ -737,7 +737,7 @@ private fun HomeScreen(
             shadowElevation = 8.dp
         ) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("+", color = Color.White, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                Text("+", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 2.dp))
             }
         }
     }
@@ -1002,8 +1002,9 @@ private fun EncryptedChatListScreen(repository: EncryptedChatRepository?, onBack
 // ── Encrypted chat screen ─────────────────────────────────────────────────────
 
 @Composable
-private fun EncryptedChatScreen(cryptoBridge: CryptoBridge?, meshBridge: MeshBridge?, repository: EncryptedChatRepository?, initialContactPeerId: String?, onBack: () -> Unit) {
-    var localPeerId by remember { mutableStateOf("iphone-a") }
+private fun EncryptedChatScreen(cryptoBridge: CryptoBridge?, meshBridge: MeshBridge?, repository: EncryptedChatRepository?, identityRepository: LocalIdentityRepository?, initialContactPeerId: String?, onBack: () -> Unit) {
+    val identity = remember(identityRepository) { identityRepository?.get() }
+    var localPeerId by remember(identity?.peerId) { mutableStateOf(identity?.peerId.orEmpty()) }
     var contactPeerId by remember { mutableStateOf(initialContactPeerId ?: "iphone-b") }
     var outgoingMessage by remember { mutableStateOf("") }
     var outgoingEnvelope by remember { mutableStateOf("") }
@@ -1062,7 +1063,7 @@ private fun EncryptedChatScreen(cryptoBridge: CryptoBridge?, meshBridge: MeshBri
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text(selectedContact?.displayName ?: "Choose a contact", color = Ink, fontWeight = FontWeight.Bold)
-                    Text(if (selectedContact == null) "Pair a contact first." else "${shortPeerId(contactPeerId)} · $lastRefreshText", color = Muted, style = MaterialTheme.typography.bodySmall)
+                    Text(if (selectedContact == null) "Pair a contact first." else lastRefreshText, color = Muted, style = MaterialTheme.typography.bodySmall)
                 }
                 if ((pendingCount ?: 0) > 0) {
                     Surface(shape = RoundedCornerShape(999.dp), color = Amber.copy(alpha = 0.15f)) {
@@ -1267,13 +1268,13 @@ private fun PairContactScreen(cryptoBridge: CryptoBridge?, qrScannerBridge: QrSc
         }
 
         if (pairingMode == "invite") {
-            InfoCard("1. Tampilkan QR saya", "Teman scan QR ini. Setelah scan, kontak kamu langsung tersimpan di HP teman.")
+            InfoCard("1. Tampilkan QR saya", "Teman scan QR ini. Kontak kamu tersimpan di HP teman. Setelah itu, scan QR balasan dari HP teman agar kontak teman tersimpan di HP kamu.")
             PrimaryButton("Buat Invite QR") {
                 if (localPeerId.isBlank()) result = "Buat identitas dulu dari onboarding/profile."
                 else if (!missingBridge("Create invite")) setResult("Create invite", cryptoBridge!!.createPairingOffer("", localPeerId.trim(), localName.trim().ifBlank { localPeerId.trim() })) { json -> offerEnvelope = encodePairingEnvelope("PAIRING_OFFER", json); result = "QR siap. Minta teman scan." }
             }
             PairingQrCard("QR Saya", offerEnvelope, "Tampilkan ke kontak.")
-            InfoCard("2. Scan QR", "Scan QR dari HP teman. Invite atau balasan akan terdeteksi otomatis.")
+            InfoCard("2. Scan QR", "Scan QR dari HP teman. Invite atau balasan terdeteksi otomatis. Kalau kontak belum muncul di HP ini, scan QR balasan teman.")
             OutlinedButton({ scanQr("Scan QR") { token -> handleScannedPairingToken(token) } }, Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(999.dp)) { Text("Scan QR") }
         } else {
             InfoCard("1. Scan QR", "Scan QR dari HP teman. Invite atau balasan akan terdeteksi otomatis.")

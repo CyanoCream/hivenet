@@ -45,7 +45,7 @@ final class IosQrScannerBridge: NSObject, QrScannerBridge {
             } else if let token = token, token.hasPrefix("KNET1:PAIRING_") {
                 onResult(CryptoBridgeResult(ok: true, value: token, error: nil))
             } else if let token = token {
-                onResult(CryptoBridgeResult(ok: false, value: nil, error: "QR bukan token pairing Kampung-Net: \(token.prefix(16))"))
+                onResult(CryptoBridgeResult(ok: false, value: nil, error: "QR bukan token pairing HiveNet. Coba scan ulang."))
             } else {
                 onResult(CryptoBridgeResult(ok: false, value: nil, error: "Scan QR dibatalkan"))
             }
@@ -126,7 +126,7 @@ private final class QrScannerViewController: UIViewController, AVCaptureMetadata
         title.translatesAutoresizingMaskIntoConstraints = false
 
         let help = UILabel()
-        help.text = "Arahkan kamera ke QR invite atau acceptance Kampung-Net."
+        help.text = "Arahkan kamera ke QR invite atau balasan HiveNet."
         help.textColor = .white
         help.numberOfLines = 0
         help.textAlignment = .center
