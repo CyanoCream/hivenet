@@ -1623,7 +1623,7 @@ private fun HtRoom(thread: ChatThread, onSend: () -> Unit, onReply: () -> Unit) 
 
 @Composable
 private fun FormScaffold(title: String, subtitle: String, onBack: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
-    Column(Modifier.fillMaxSize().background(AppBg)) {
+    Column(Modifier.fillMaxSize().platformSwipeBack(enabled = true, onBack = onBack).background(AppBg)) {
         Header(title, subtitle, onBack)
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), content = content)
     }
