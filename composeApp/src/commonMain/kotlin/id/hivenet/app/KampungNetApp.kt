@@ -214,7 +214,23 @@ private fun formatClockTime(epochMillis: Long): String {
 
 private data class ReceivedChatPacket(val fromPeerId: String, val envelope: String)
 private data class ReceivedReceiptPacket(val fromPeerId: String, val envelope: String)
-private data class SecureThreadPreview(val contact: ContactItem, val lastMessage: ChatMessageItem?)
+private data class SecureThreadPreview(val contact: ContactItem, val lastMessage: ChatMessageItem?, val directOnline: Boolean = false)
+
+private fun directMeshPeerIds(peersText: String): Set<String> = peersText.lines()
+    .mapNotNull { line ->
+        val peerId = line.substringBefore(" [", missingDelimiterValue = "").trim()
+        peerId.takeIf { it.isNotBlank() && line.contains("[") }
+    }
+    .toSet()
+
+private fun messageStatusLabel(message: ChatMessageItem?): String = when (message?.status?.uppercase()) {
+    "READ" -> "Read"
+    "DELIVERED", "DECRYPTED" -> "Delivered"
+    "BROADCASTED", "RELAYED" -> "Sent"
+    "QUEUED" -> "Pending"
+    null -> "No messages yet"
+    else -> message.status.lowercase().replaceFirstChar { it.uppercase() }
+}
 
 private fun stableEnvelopeId(value: String): String {
     var hash = 0xcbf29ce484222325UL
@@ -404,7 +420,7 @@ fun KampungNetApp(
                 }
                 Screen.CryptoDebug -> CryptoDebugScreen(cryptoBridge, onBack = ::backHome)
                 Screen.PairContact -> PairContactScreen(cryptoBridge, qrScannerBridge, encryptedChatRepository, identityRepository, onPaired = { contactVersion += 1 }, onBack = ::backHome)
-                Screen.EncryptedChatList -> EncryptedChatListScreen(encryptedChatRepository, onBack = ::backHome, onPair = { screen = Screen.PairContact }, onOpen = { peerId -> selectedEncryptedPeerId = peerId; screen = Screen.EncryptedChat })
+                Screen.EncryptedChatList -> EncryptedChatListScreen(encryptedChatRepository, meshBridge, onBack = ::backHome, onPair = { screen = Screen.PairContact }, onOpen = { peerId -> selectedEncryptedPeerId = peerId; screen = Screen.EncryptedChat })
                 Screen.EncryptedChat -> EncryptedChatScreen(cryptoBridge, meshBridge, encryptedChatRepository, identityRepository, initialContactPeerId = selectedEncryptedPeerId, onBack = { screen = Screen.EncryptedChatList })
                 Screen.MeshDebug -> MeshDebugScreen(cryptoBridge, meshBridge, notificationBridge, notificationsEnabled, notificationPreviewEnabled, encryptedChatRepository, onBack = ::backHome)
             }
@@ -964,7 +980,7 @@ private fun MeshDebugScreen(
 // ── Encrypted chat list ───────────────────────────────────────────────────────
 
 @Composable
-private fun EncryptedChatListScreen(repository: EncryptedChatRepository?, onBack: () -> Unit, onPair: () -> Unit, onOpen: (String) -> Unit) {
+private fun EncryptedChatListScreen(repository: EncryptedChatRepository?, meshBridge: MeshBridge?, onBack: () -> Unit, onPair: () -> Unit, onOpen: (String) -> Unit) {
     var previews by remember { mutableStateOf<List<SecureThreadPreview>>(emptyList()) }
     var status by remember { mutableStateOf(if (repository == null) "Database not available." else "Ready.") }
     var renameContact by remember { mutableStateOf<ContactItem?>(null) }
@@ -972,14 +988,15 @@ private fun EncryptedChatListScreen(repository: EncryptedChatRepository?, onBack
 
     fun refresh() {
         val repo = repository ?: run { previews = emptyList(); status = "Database not available."; return }
+        val directPeers = meshBridge?.peers()?.takeIf { it.ok }?.value?.let(::directMeshPeerIds).orEmpty()
         val contacts = repo.trustedContacts()
-        previews = contacts.map { SecureThreadPreview(it, repo.chatMessagesForThread(it.peerId, 1).lastOrNull()) }
+        previews = contacts.map { SecureThreadPreview(it, repo.chatMessagesForThread(it.peerId, 1).lastOrNull(), directOnline = it.peerId in directPeers) }
             .sortedWith(compareByDescending<SecureThreadPreview> { it.lastMessage?.createdAt ?: 0L }.thenBy { it.contact.displayName.lowercase() })
         status = if (contacts.isEmpty()) "No contacts yet. Pair a contact first." else "${contacts.size} contacts."
     }
 
-    LaunchedEffect(repository) { refresh() }
-    LaunchedEffect(repository) { while (repository != null) { refresh(); delay(5_000) } }
+    LaunchedEffect(repository, meshBridge) { refresh() }
+    LaunchedEffect(repository, meshBridge) { while (repository != null) { refresh(); delay(5_000) } }
 
     Column(Modifier.fillMaxSize()) {
         Header("Chat", "End-to-end encrypted", onBack, action = "Add Contact", onAction = onPair)
@@ -1244,6 +1261,11 @@ private fun PairContactScreen(cryptoBridge: CryptoBridge?, qrScannerBridge: QrSc
     }
     fun savePairedContact(peerId: String, displayName: String, identityPublicKey: String?, keyId: String?, secretRef: String?) {
         val repo = repository ?: run { result = "Pairing succeeded, but database not available. Contact: $peerId."; return }
+        if (repo.trustedContacts().any { it.peerId == peerId }) {
+            result = "Sudah sekontak: ${displayName.ifBlank { peerId }}. Tidak perlu pairing ulang."
+            onPaired()
+            return
+        }
         repo.saveTrustedContact(peerId, displayName.ifBlank { peerId }, identityPublicKey, keyId, secretRef, SystemClock.nowMillis())
         onPaired()
         pairedPeerIdForName = peerId
@@ -1256,18 +1278,32 @@ private fun PairContactScreen(cryptoBridge: CryptoBridge?, qrScannerBridge: QrSc
             "PAIRING_OFFER" -> {
                 incomingOffer = token
                 val oJson = decodePairingEnvelope(incomingOffer, "PAIRING_OFFER") ?: run { result = "QR kontak tidak valid."; return }
+                val senderPeerId = extractJsonValue(oJson, "senderPeerId").orEmpty()
+                val senderName = extractJsonValue(oJson, "senderName").orEmpty()
+                if (repository?.trustedContacts()?.any { it.peerId == senderPeerId } == true) {
+                    result = "Sudah sekontak: ${senderName.ifBlank { senderPeerId }}. Tidak perlu pairing ulang."
+                    onPaired()
+                    return
+                }
                 setResult("Scan QR", cryptoBridge!!.acceptPairingOffer(oJson, localPeerId.trim(), localName.trim().ifBlank { localPeerId.trim() })) { aJson ->
                     verificationCode = extractJsonValue(aJson, "verificationCode").orEmpty()
                     acceptanceEnvelope = encodePairingEnvelope("PAIRING_ACCEPT", aJson)
-                    savePairedContact(extractJsonValue(oJson, "senderPeerId").orEmpty(), extractJsonValue(oJson, "senderName").orEmpty(), extractJsonValue(oJson, "identityPublicKey"), null, null)
+                    savePairedContact(senderPeerId, senderName, extractJsonValue(oJson, "identityPublicKey"), null, null)
                 }
             }
             "PAIRING_ACCEPT" -> {
                 incomingAcceptance = token
                 val aJson = decodePairingEnvelope(incomingAcceptance, "PAIRING_ACCEPT") ?: run { result = "QR balasan tidak valid."; return }
                 verificationCode = extractJsonValue(aJson, "verificationCode").orEmpty()
+                val responderPeerId = extractJsonValue(aJson, "responderPeerId").orEmpty()
+                val responderName = extractJsonValue(aJson, "responderName").orEmpty()
+                if (repository?.trustedContacts()?.any { it.peerId == responderPeerId } == true) {
+                    result = "Sudah sekontak: ${responderName.ifBlank { responderPeerId }}. Tidak perlu pairing ulang."
+                    onPaired()
+                    return
+                }
                 setResult("Scan QR", cryptoBridge!!.completePairing(aJson, localPeerId.trim())) { keyJson ->
-                    savePairedContact(extractJsonValue(keyJson, "contactPeerId").orEmpty(), extractJsonValue(aJson, "responderName").orEmpty(), extractJsonValue(aJson, "identityPublicKey"), extractJsonValue(keyJson, "keyId").orEmpty(), extractJsonValue(keyJson, "keyId").orEmpty())
+                    savePairedContact(extractJsonValue(keyJson, "contactPeerId").orEmpty(), responderName, extractJsonValue(aJson, "identityPublicKey"), extractJsonValue(keyJson, "keyId").orEmpty(), extractJsonValue(keyJson, "keyId").orEmpty())
                 }
             }
             else -> result = "QR bukan token pairing HiveNet."
@@ -1597,6 +1633,13 @@ private fun SecureThreadRow(preview: SecureThreadPreview, onRename: () -> Unit, 
                     Text(last?.let { formatClockTime(it.createdAt) }.orEmpty(), color = Muted, style = MaterialTheme.typography.bodySmall)
                 }
                 Text(last?.body ?: "Tap to start chatting.", color = Muted, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    StatusChip(messageStatusLabel(last), PrimarySubtle, Primary)
+                    if (preview.directOnline) {
+                        StatusChip("● Online", Color(0xFFDCFCE7), Color(0xFF16A34A))
+                        StatusChip("↑ Direct", Color(0xFFE0F2FE), Color(0xFF0284C7))
+                    }
+                }
             }
             Spacer(Modifier.width(8.dp))
             Box {
@@ -1607,6 +1650,13 @@ private fun SecureThreadRow(preview: SecureThreadPreview, onRename: () -> Unit, 
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun StatusChip(text: String, background: Color, content: Color) {
+    Surface(shape = RoundedCornerShape(999.dp), color = background) {
+        Text(text, color = content, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
     }
 }
 
