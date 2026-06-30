@@ -1234,11 +1234,12 @@ private fun EncryptedChatScreen(cryptoBridge: CryptoBridge?, meshBridge: MeshBri
                 if (bridge == null) { status = "Encrypt failed: crypto bridge not available" }
                 else if (peerId.isBlank()) { status = "Encrypt failed: no contact selected" }
                 else {
-                    val result = bridge.encrypt(peerId, outgoingMessage.toBase64(), associatedData(peerId))
+                    val senderPeerId = localPeerId.trim().ifBlank { "local-device" }
+                    val result = bridge.encrypt(peerId, outgoingMessage.toBase64(), associatedData(senderPeerId))
                     if (result.ok) {
                         val payloadJson = result.value.orEmpty()
-                        val stored = repository?.saveOutgoingEncryptedChat(localPeerId.trim().ifBlank { "local-device" }, peerId, outgoingMessage, payloadJson, SystemClock.nowMillis())
-                        outgoingEnvelope = if (stored == null) encodeChatEnvelope(payloadJson) else encodeChatEnvelope(chatPacketJson(stored.packetId, localPeerId.trim().ifBlank { "local-device" }, peerId, payloadJson))
+                        val stored = repository?.saveOutgoingEncryptedChat(senderPeerId, peerId, outgoingMessage, payloadJson, SystemClock.nowMillis())
+                        outgoingEnvelope = if (stored == null) encodeChatEnvelope(payloadJson) else encodeChatEnvelope(chatPacketJson(stored.packetId, senderPeerId, peerId, payloadJson))
                         status = if (stored == null) "Encrypted. No database." else "Sent to outbox. ${sendPendingOutboxFromChat()}"
                         outgoingMessage = ""
                         refreshMessages()
