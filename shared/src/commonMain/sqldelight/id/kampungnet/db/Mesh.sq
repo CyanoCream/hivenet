@@ -109,6 +109,19 @@ SELECT * FROM contacts
 WHERE trusted = 1
 ORDER BY display_name ASC;
 
+updateContactDisplayName:
+UPDATE contacts
+SET display_name = ?
+WHERE peer_id = ?;
+
+deleteContactKeys:
+DELETE FROM contact_keys
+WHERE contact_peer_id = ?;
+
+deleteContact:
+DELETE FROM contacts
+WHERE peer_id = ?;
+
 upsertContactKey:
 INSERT OR REPLACE INTO contact_keys(key_id, contact_peer_id, algorithm, secret_ref, created_at, verified_at)
 VALUES (?, ?, ?, ?, ?, ?);

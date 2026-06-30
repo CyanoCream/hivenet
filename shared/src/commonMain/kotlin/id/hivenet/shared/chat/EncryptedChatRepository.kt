@@ -112,6 +112,19 @@ class EncryptedChatRepository(
             )
         }
 
+    fun updateContactDisplayName(peerId: String, displayName: String) {
+        if (peerId.isBlank() || displayName.isBlank()) return
+        database.meshQueries.updateContactDisplayName(display_name = displayName.trim(), peer_id = peerId)
+    }
+
+    fun deleteContact(peerId: String) {
+        if (peerId.isBlank()) return
+        database.meshQueries.transaction {
+            database.meshQueries.deleteContactKeys(peerId)
+            database.meshQueries.deleteContact(peerId)
+        }
+    }
+
     fun saveOutgoingEncryptedChat(
         localPeerId: String,
         contactPeerId: String,

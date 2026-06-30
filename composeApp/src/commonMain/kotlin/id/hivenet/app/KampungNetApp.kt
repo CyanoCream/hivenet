@@ -34,6 +34,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.darkColorScheme
@@ -44,6 +45,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -965,6 +967,8 @@ private fun MeshDebugScreen(
 private fun EncryptedChatListScreen(repository: EncryptedChatRepository?, onBack: () -> Unit, onPair: () -> Unit, onOpen: (String) -> Unit) {
     var previews by remember { mutableStateOf<List<SecureThreadPreview>>(emptyList()) }
     var status by remember { mutableStateOf(if (repository == null) "Database not available." else "Ready.") }
+    var renameContact by remember { mutableStateOf<ContactItem?>(null) }
+    var renameValue by remember { mutableStateOf("") }
 
     fun refresh() {
         val repo = repository ?: run { previews = emptyList(); status = "Database not available."; return }
@@ -993,9 +997,24 @@ private fun EncryptedChatListScreen(repository: EncryptedChatRepository?, onBack
                 }
             }
             if (previews.isEmpty()) item { InfoCard("No Chats", if (repository == null) "Database not available." else "Pair a contact first.") }
-            else items(previews) { preview -> SecureThreadRow(preview) { onOpen(preview.contact.peerId) } }
+            else items(previews) { preview ->
+                SecureThreadRow(
+                    preview = preview,
+                    onRename = { renameContact = preview.contact; renameValue = preview.contact.displayName },
+                    onDelete = { repository?.deleteContact(preview.contact.peerId); status = "Kontak dihapus: ${preview.contact.displayName}."; refresh() },
+                ) { onOpen(preview.contact.peerId) }
+            }
             item { InfoCard("Status", status) }
         }
+    }
+    renameContact?.let { contact ->
+        AlertDialog(
+            onDismissRequest = { renameContact = null },
+            title = { Text("Nama kontak") },
+            text = { OutlinedTextField(renameValue, { renameValue = it }, Modifier.fillMaxWidth(), label = { Text("Nama") }, singleLine = true, shape = RoundedCornerShape(12.dp)) },
+            confirmButton = { TextButton({ repository?.updateContactDisplayName(contact.peerId, renameValue.ifBlank { contact.displayName }); status = "Nama kontak disimpan."; renameContact = null; refresh() }) { Text("Save") } },
+            dismissButton = { TextButton({ renameContact = null }) { Text("Cancel") } },
+        )
     }
 }
 
@@ -1204,6 +1223,8 @@ private fun PairContactScreen(cryptoBridge: CryptoBridge?, qrScannerBridge: QrSc
     var pairingMode by remember { mutableStateOf("invite") }
     var showAdvanced by remember { mutableStateOf(false) }
     var result by remember { mutableStateOf(if (cryptoBridge == null) "Pairing not available on this platform." else "Tampilkan QR kamu atau scan QR kontak. Kontak tersimpan otomatis setelah scan.") }
+    var pairedPeerIdForName by remember { mutableStateOf<String?>(null) }
+    var contactNameDraft by remember { mutableStateOf("") }
 
     fun setResult(label: String, cryptoResult: CryptoBridgeResult, onSuccess: (String) -> Unit = {}) {
         if (cryptoResult.ok) { result = "$label succeeded"; onSuccess(cryptoResult.value.orEmpty()) }
@@ -1225,6 +1246,8 @@ private fun PairContactScreen(cryptoBridge: CryptoBridge?, qrScannerBridge: QrSc
         val repo = repository ?: run { result = "Pairing succeeded, but database not available. Contact: $peerId."; return }
         repo.saveTrustedContact(peerId, displayName.ifBlank { peerId }, identityPublicKey, keyId, secretRef, SystemClock.nowMillis())
         onPaired()
+        pairedPeerIdForName = peerId
+        contactNameDraft = displayName.ifBlank { peerId }
         result = "Kontak tersimpan: ${displayName.ifBlank { peerId }}."
     }
     fun handleScannedPairingToken(token: String) {
@@ -1303,6 +1326,15 @@ private fun PairContactScreen(cryptoBridge: CryptoBridge?, qrScannerBridge: QrSc
             OutlinedTextField(incomingAcceptance, { incomingAcceptance = it }, Modifier.fillMaxWidth().height(88.dp), label = { Text("Response token dari teman") }, shape = RoundedCornerShape(12.dp))
         }
         InfoCard("Status", result)
+    }
+    pairedPeerIdForName?.let { peerId ->
+        AlertDialog(
+            onDismissRequest = { pairedPeerIdForName = null },
+            title = { Text("Nama kontak") },
+            text = { OutlinedTextField(contactNameDraft, { contactNameDraft = it }, Modifier.fillMaxWidth(), label = { Text("Nama") }, singleLine = true, shape = RoundedCornerShape(12.dp)) },
+            confirmButton = { TextButton({ repository?.updateContactDisplayName(peerId, contactNameDraft.ifBlank { peerId }); onPaired(); pairedPeerIdForName = null; result = "Nama kontak disimpan." }) { Text("Save") } },
+            dismissButton = { TextButton({ pairedPeerIdForName = null }) { Text("Nanti") } },
+        )
     }
 }
 
@@ -1552,7 +1584,8 @@ private fun ChatRow(thread: ChatThread, onDelete: () -> Unit, onClick: () -> Uni
 }
 
 @Composable
-private fun SecureThreadRow(preview: SecureThreadPreview, onClick: () -> Unit) {
+private fun SecureThreadRow(preview: SecureThreadPreview, onRename: () -> Unit, onDelete: () -> Unit, onClick: () -> Unit) {
+    var menuOpen by remember { mutableStateOf(false) }
     val last = preview.lastMessage
     Surface(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable(onClick = onClick), color = CardBg, tonalElevation = 0.dp) {
         Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1566,7 +1599,13 @@ private fun SecureThreadRow(preview: SecureThreadPreview, onClick: () -> Unit) {
                 Text(last?.body ?: "Tap to start chatting.", color = Muted, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Spacer(Modifier.width(8.dp))
-            Text("›", color = Primary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+            Box {
+                Text("⋮", color = Primary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, modifier = Modifier.clickable { menuOpen = true }.padding(horizontal = 8.dp, vertical = 4.dp))
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(text = { Text("Rename") }, onClick = { menuOpen = false; onRename() })
+                    DropdownMenuItem(text = { Text("Delete contact") }, onClick = { menuOpen = false; onDelete() })
+                }
+            }
         }
     }
 }
