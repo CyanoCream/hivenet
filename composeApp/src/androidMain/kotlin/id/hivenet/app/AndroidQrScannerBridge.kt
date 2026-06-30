@@ -26,9 +26,10 @@ class AndroidQrScannerBridge(activity: ComponentActivity) : QrScannerBridge {
         launcher.launch(
             ScanOptions()
                 .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                .setPrompt("Scan HiveNet pairing QR")
+                .setPrompt("Arahkan kamera ke QR kontak")
                 .setBeepEnabled(false)
-                .setOrientationLocked(false)
+                .setCaptureActivity(PortraitQrCaptureActivity::class.java)
+                .setOrientationLocked(true)
         )
     }
 }

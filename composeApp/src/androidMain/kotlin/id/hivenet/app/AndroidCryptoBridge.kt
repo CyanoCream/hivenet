@@ -22,6 +22,8 @@ import javax.crypto.Mac
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
 import org.bouncycastle.jce.provider.BouncyCastleProvider
+import org.bouncycastle.crypto.params.X25519PrivateKeyParameters
+import org.bouncycastle.crypto.params.X25519PublicKeyParameters
 
 class AndroidCryptoBridge(context: Context) : CryptoBridge {
     private val appContext = context.applicationContext
@@ -166,16 +168,20 @@ class AndroidCryptoBridge(context: Context) : CryptoBridge {
         return runCatching {
             KeyPairGenerator.getInstance("XDH").apply { initialize(NamedParameterSpec("X25519"), secureRandom) }.generateKeyPair()
         }.getOrElse {
-            KeyPairGenerator.getInstance("X25519", BOUNCY_CASTLE_PROVIDER).apply { initialize(255, secureRandom) }.generateKeyPair()
+            val privateKey = X25519PrivateKeyParameters(secureRandom)
+            val publicKey = privateKey.generatePublicKey()
+            KeyPair(RawX25519PublicKey(publicKey.encoded), RawX25519PrivateKey(privateKey.encoded))
         }
     }
 
     private fun decodePrivateKey(encoded: ByteArray): PrivateKey {
+        if (encoded.size == X25519_PRIVATE_KEY_SIZE_BYTES) return RawX25519PrivateKey(encoded)
         return runCatching { KeyFactory.getInstance("XDH").generatePrivate(PKCS8EncodedKeySpec(encoded)) }
             .getOrElse { KeyFactory.getInstance("X25519", BOUNCY_CASTLE_PROVIDER).generatePrivate(PKCS8EncodedKeySpec(encoded)) }
     }
 
     private fun rawPublicKey(keyPair: KeyPair): ByteArray {
+        (keyPair.public as? RawX25519PublicKey)?.let { return it.raw.copyOf() }
         rawPublicKeyFromBouncyCastle(keyPair.public)?.let { return it }
         val u = (keyPair.public as XECPublicKey).u
         return u.toLittleEndian32()
@@ -189,6 +195,12 @@ class AndroidCryptoBridge(context: Context) : CryptoBridge {
     }
 
     private fun generateSharedSecret(privateKey: PrivateKey, remoteRawPublicKey: ByteArray, provider: String?): ByteArray {
+        if (privateKey is RawX25519PrivateKey) {
+            val secret = ByteArray(X25519_PUBLIC_KEY_SIZE_BYTES)
+            X25519PrivateKeyParameters(privateKey.raw, 0)
+                .generateSecret(X25519PublicKeyParameters(remoteRawPublicKey, 0), secret, 0)
+            return secret
+        }
         val keyFactory = if (provider == null) KeyFactory.getInstance("XDH") else KeyFactory.getInstance("X25519", provider)
         val agreement = if (provider == null) KeyAgreement.getInstance("XDH") else KeyAgreement.getInstance("X25519", provider)
         val publicKey = keyFactory.generatePublic(XECPublicKeySpec(NamedParameterSpec("X25519"), remoteRawPublicKey.fromLittleEndian()))
@@ -264,6 +276,7 @@ class AndroidCryptoBridge(context: Context) : CryptoBridge {
         const val IDENTITY_PRIVATE = "identity.x25519.private"
         const val IDENTITY_PUBLIC = "identity.x25519.public"
         const val X25519_PUBLIC_KEY_SIZE_BYTES = 32
+        const val X25519_PRIVATE_KEY_SIZE_BYTES = 32
         const val SYMMETRIC_KEY_SIZE_BYTES = 32
         const val NONCE_SIZE_BYTES = 12
         const val AUTH_TAG_SIZE_BYTES = 16
@@ -273,6 +286,18 @@ class AndroidCryptoBridge(context: Context) : CryptoBridge {
             return Security.getProvider(BOUNCY_CASTLE_PROVIDER) ?: BouncyCastleProvider().also { Security.addProvider(it) }
         }
     }
+}
+
+private class RawX25519PrivateKey(val raw: ByteArray) : PrivateKey {
+    override fun getAlgorithm(): String = "X25519"
+    override fun getFormat(): String = "RAW"
+    override fun getEncoded(): ByteArray = raw.copyOf()
+}
+
+private class RawX25519PublicKey(val raw: ByteArray) : java.security.PublicKey {
+    override fun getAlgorithm(): String = "X25519"
+    override fun getFormat(): String = "RAW"
+    override fun getEncoded(): ByteArray = raw.copyOf()
 }
 
 private fun ByteArray.toBase64(): String = Base64.encodeToString(this, Base64.NO_WRAP)

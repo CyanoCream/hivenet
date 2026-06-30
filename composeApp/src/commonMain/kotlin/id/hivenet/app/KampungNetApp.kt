@@ -283,6 +283,7 @@ fun KampungNetApp(
     var nextMessageId by remember { mutableStateOf(100) }
     var nextHtId by remember { mutableStateOf(1) }
     val threads = remember { mutableStateListOf<ChatThread>() }
+    val strings = remember { appStringsFor(deviceLanguageCode()) }
 
     fun updateThread(id: String, block: (ChatThread) -> ChatThread) {
         val index = threads.indexOfFirst { it.id == id }
@@ -317,9 +318,10 @@ fun KampungNetApp(
             when (activeScreen) {
                 Screen.Welcome -> WelcomeScreen(onRegister = { screen = Screen.Onboarding })
                 Screen.Onboarding -> OnboardingScreen(identityRepository, onBack = { screen = Screen.Welcome }, onCreated = { identity -> localIdentity = identity; screen = Screen.Home })
-                Screen.Home -> HomeScreen(threads, localIdentity, onOpen = ::openThread, onDelete = { threadId -> threads.removeAll { it.id == threadId } }, onNewChat = { screen = Screen.NewChat }, onNewGroup = { screen = Screen.NewGroup }, onGlobalSos = { showSosSheet = true }, onSettings = { screen = Screen.Settings }, onProfile = { screen = Screen.Profile }, onCrypto = { screen = Screen.CryptoDebug }, onPair = { screen = Screen.PairContact }, onEncryptedChat = { screen = Screen.EncryptedChatList }, onMesh = { screen = Screen.MeshDebug })
+                Screen.Home -> HomeScreen(strings, threads, localIdentity, onOpen = ::openThread, onDelete = { threadId -> threads.removeAll { it.id == threadId } }, onNewChat = { screen = Screen.NewChat }, onNewGroup = { screen = Screen.NewGroup }, onGlobalSos = { showSosSheet = true }, onSettings = { screen = Screen.Settings }, onProfile = { screen = Screen.Profile }, onCrypto = { screen = Screen.CryptoDebug }, onPair = { screen = Screen.PairContact }, onEncryptedChat = { screen = Screen.EncryptedChatList }, onMesh = { screen = Screen.MeshDebug })
                 Screen.Settings -> SettingsScreen(
                     notificationBridge = notificationBridge,
+                    strings = strings,
                     animationsEnabled = animationsEnabled,
                     notificationsEnabled = notificationsEnabled,
                     notificationPreviewEnabled = notificationPreviewEnabled,
@@ -335,7 +337,7 @@ fun KampungNetApp(
                 )
                 Screen.Profile -> ProfileScreen(localIdentity, identityRepository, onBack = ::backHome, onSaved = { localIdentity = it })
                 Screen.NewChoice -> NewChoiceScreen(onBack = ::backHome, onChat = { screen = Screen.NewChat }, onGroup = { screen = Screen.NewGroup })
-                Screen.NewChat -> NewChatScreen(peers, onBack = ::backHome, onAddContact = { screen = Screen.PairContact }) { peer, first ->
+                Screen.NewChat -> NewChatScreen(strings, peers, onBack = ::backHome, onAddContact = { screen = Screen.PairContact }) { peer, first ->
                     val id = "direct-${nextThreadId++}"
                     val thread = ChatThread(id, peer.name, peer.peerId, false, messages = if (first.isBlank()) emptyList() else listOf(ChatMessage(nextMessageId++, "Me", first.trim(), "Just now", true, "queued")))
                     if (thread.messages.isEmpty()) openPendingThread(thread) else { threads.add(0, thread); openThread(id) }
@@ -521,6 +523,7 @@ private fun ProfileValue(label: String, value: String) {
 @Composable
 private fun SettingsScreen(
     notificationBridge: NotificationBridge?,
+    strings: AppStrings,
     animationsEnabled: Boolean,
     notificationsEnabled: Boolean,
     notificationPreviewEnabled: Boolean,
@@ -536,13 +539,13 @@ private fun SettingsScreen(
 ) {
     var notificationStatus by remember { mutableStateOf(if (notificationBridge == null) "Notification bridge not available." else "Notification ready.") }
     Column(Modifier.fillMaxSize()) {
-        Header("Settings", "App behavior and safety", onBack)
+        Header(strings.settings, strings.settingsSubtitle, onBack)
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Surface(Modifier.fillMaxWidth(), color = CardBg, shape = RoundedCornerShape(16.dp), tonalElevation = 1.dp) {
                 Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("Animasi halaman", color = Ink, fontWeight = FontWeight.Bold)
-                        Text("Matikan untuk HP lama agar transisi lebih ringan.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                        Text(strings.pageAnimation, color = Ink, fontWeight = FontWeight.Bold)
+                        Text(strings.pageAnimationHint, color = Muted, style = MaterialTheme.typography.bodySmall)
                     }
                     Switch(checked = animationsEnabled, onCheckedChange = onAnimationsChanged)
                 }
@@ -551,22 +554,22 @@ private fun SettingsScreen(
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text("Notifications", color = Ink, fontWeight = FontWeight.Bold)
-                            Text("Local notification only after message diterima, decrypt sukses, dan tersimpan.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                            Text(strings.notifications, color = Ink, fontWeight = FontWeight.Bold)
+                            Text(strings.notificationsHint, color = Muted, style = MaterialTheme.typography.bodySmall)
                         }
                         Switch(checked = notificationsEnabled, onCheckedChange = onNotificationsChanged)
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text("Show message preview", color = Ink, fontWeight = FontWeight.SemiBold)
-                            Text("Matikan kalau tidak mau isi pesan tampil di lock screen.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                            Text(strings.showMessagePreview, color = Ink, fontWeight = FontWeight.SemiBold)
+                            Text(strings.showMessagePreviewHint, color = Muted, style = MaterialTheme.typography.bodySmall)
                         }
                         Switch(checked = notificationPreviewEnabled, onCheckedChange = onNotificationPreviewChanged, enabled = notificationsEnabled)
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text("SOS alerts", color = Ink, fontWeight = FontWeight.SemiBold)
-                            Text("Untuk alert darurat lokal setelah packet valid diterima.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                            Text(strings.sosAlerts, color = Ink, fontWeight = FontWeight.SemiBold)
+                            Text(strings.sosAlertsHint, color = Muted, style = MaterialTheme.typography.bodySmall)
                         }
                         Switch(checked = sosNotificationsEnabled, onCheckedChange = onSosNotificationsChanged, enabled = notificationsEnabled)
                     }
@@ -578,15 +581,15 @@ private fun SettingsScreen(
                         },
                         modifier = Modifier.fillMaxWidth().height(44.dp),
                         shape = RoundedCornerShape(999.dp),
-                    ) { Text("Allow Notifications") }
+                    ) { Text(strings.allowNotifications) }
                     Text(notificationStatus, color = Muted, style = MaterialTheme.typography.bodySmall)
                 }
             }
-            Text("Shortcuts", color = Muted, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
-            BigAction("Profile", "Nama, jabatan, email backup, recovery code", onProfile)
-            BigAction("Add Contact", "Pairing aman via QR atau token manual", onPair)
-            BigAction("Local Mesh", "Start/stop dan cek koneksi mesh lokal", onMesh)
-            InfoCard("Security", "Pairing memakai X25519 + HKDF-SHA256. Message body tidak dibackup default. Notif hanya local setelah pesan diterima dan tersimpan.")
+            Text(strings.shortcuts, color = Muted, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+            BigAction(strings.profile, "Nama, jabatan, email backup, recovery code", onProfile)
+            BigAction(strings.addContact, strings.addContactHint, onPair)
+            BigAction(strings.localMesh, strings.localMeshHint, onMesh)
+            InfoCard("Security", strings.securityHint)
         }
     }
 }
@@ -595,6 +598,7 @@ private fun SettingsScreen(
 
 @Composable
 private fun HomeScreen(
+    strings: AppStrings,
     threads: List<ChatThread>,
     identity: LocalIdentity?,
     onOpen: (String) -> Unit,
@@ -659,15 +663,15 @@ private fun HomeScreen(
                         }
                     }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        DropdownMenuItem(text = { Text("Search") }, onClick = { menuOpen = false; searchOpen = true })
-                        DropdownMenuItem(text = { Text("Settings") }, onClick = { menuOpen = false; onSettings() })
-                        DropdownMenuItem(text = { Text("Profile") }, onClick = { menuOpen = false; onProfile() })
-                        DropdownMenuItem(text = { Text("New Message") }, onClick = { menuOpen = false; onNewChat() })
-                        DropdownMenuItem(text = { Text("New Group") }, onClick = { menuOpen = false; onNewGroup() })
-                        DropdownMenuItem(text = { Text("Add Contact") }, onClick = { menuOpen = false; onPair() })
-                        DropdownMenuItem(text = { Text("Encrypted Chat") }, onClick = { menuOpen = false; onEncryptedChat() })
-                        DropdownMenuItem(text = { Text("Local Mesh") }, onClick = { menuOpen = false; onMesh() })
-                        DropdownMenuItem(text = { Text("Crypto Debug") }, onClick = { menuOpen = false; onCrypto() })
+                        DropdownMenuItem(text = { Text(strings.search) }, onClick = { menuOpen = false; searchOpen = true })
+                        DropdownMenuItem(text = { Text(strings.settings) }, onClick = { menuOpen = false; onSettings() })
+                        DropdownMenuItem(text = { Text(strings.profile) }, onClick = { menuOpen = false; onProfile() })
+                        DropdownMenuItem(text = { Text(strings.newMessage) }, onClick = { menuOpen = false; onNewChat() })
+                        DropdownMenuItem(text = { Text(strings.newGroup) }, onClick = { menuOpen = false; onNewGroup() })
+                        DropdownMenuItem(text = { Text(strings.addContact) }, onClick = { menuOpen = false; onPair() })
+                        DropdownMenuItem(text = { Text(strings.encryptedChat) }, onClick = { menuOpen = false; onEncryptedChat() })
+                        DropdownMenuItem(text = { Text(strings.localMesh) }, onClick = { menuOpen = false; onMesh() })
+                        DropdownMenuItem(text = { Text(strings.cryptoDebug) }, onClick = { menuOpen = false; onCrypto() })
                     }
                 }
             }
@@ -676,7 +680,7 @@ private fun HomeScreen(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("Search chats or contacts") },
+                    placeholder = { Text(strings.searchPlaceholder) },
                     singleLine = true,
                     trailingIcon = {
                         Text(
@@ -691,9 +695,9 @@ private fun HomeScreen(
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip("All", filter == ThreadFilter.All, Modifier.weight(1f)) { filter = ThreadFilter.All }
-                FilterChip("Groups", filter == ThreadFilter.Groups, Modifier.weight(1f)) { filter = ThreadFilter.Groups }
-                FilterChip("Personal", filter == ThreadFilter.Personal, Modifier.weight(1f)) { filter = ThreadFilter.Personal }
+                FilterChip(strings.all, filter == ThreadFilter.All, Modifier.weight(1f)) { filter = ThreadFilter.All }
+                FilterChip(strings.groups, filter == ThreadFilter.Groups, Modifier.weight(1f)) { filter = ThreadFilter.Groups }
+                FilterChip(strings.personal, filter == ThreadFilter.Personal, Modifier.weight(1f)) { filter = ThreadFilter.Personal }
             }
         }
 
@@ -1303,18 +1307,12 @@ private fun NewChoiceScreen(onBack: () -> Unit, onChat: () -> Unit, onGroup: () 
 }
 
 @Composable
-private fun NewChatScreen(peers: List<Peer>, onBack: () -> Unit, onAddContact: () -> Unit, onCreate: (Peer, String) -> Unit) {
-    FormScaffold("New Message", "Tap a contact to start chatting", onBack) {
-        Surface(Modifier.fillMaxWidth(), color = PrimarySubtle, shape = RoundedCornerShape(16.dp)) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Butuh kontak baru?", color = Ink, fontWeight = FontWeight.Bold)
-                Text("Pair device teman dulu via Add Contact, lalu mulai chat setelah kontak tersimpan.", color = Muted, style = MaterialTheme.typography.bodySmall)
-                OutlinedButton(onClick = onAddContact, modifier = Modifier.fillMaxWidth().height(44.dp), shape = RoundedCornerShape(999.dp)) { Text("Add Contact") }
-            }
-        }
-        Text("Contacts", color = Muted, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+private fun NewChatScreen(strings: AppStrings, peers: List<Peer>, onBack: () -> Unit, onAddContact: () -> Unit, onCreate: (Peer, String) -> Unit) {
+    FormScaffold(strings.newMessage, strings.newMessageSubtitle, onBack) {
+        OutlinedButton(onClick = onAddContact, modifier = Modifier.fillMaxWidth().height(44.dp), shape = RoundedCornerShape(999.dp)) { Text(strings.addContact) }
+        Text(if (strings.addContact == "Tambah Kontak") "Kontak" else "Contacts", color = Muted, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
         if (peers.isEmpty()) {
-            InfoCard("No contacts yet", "Use Add Contact to pair a device first.")
+            InfoCard(strings.noContactsTitle, strings.noContactsHint)
         }
         peers.forEach { peer ->
             Surface(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { onCreate(peer, "") },
