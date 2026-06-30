@@ -137,6 +137,12 @@ private fun encodePairingEnvelope(type: String, json: String): String = json
 private fun encodeChatEnvelope(json: String): String = "KNET1:CHAT:${json.toBase64()}"
 private fun encodeReceiptEnvelope(json: String): String = "KNET1:RECEIPT:${json.toBase64()}"
 
+private fun decodeTypedEnvelope(input: String, expectedType: String): String? {
+    val parts = input.trim().split(":", limit = 3)
+    if (parts.size != 3 || parts[0] != "KNET1" || parts[1] != expectedType) return null
+    return parts[2].fromBase64OrNull()
+}
+
 private fun decodePairingEnvelope(input: String, expectedType: String): String? {
     val trimmed = input.trim()
     if (trimmed.startsWith("{") && trimmed.contains("\"sessionId\"", ignoreCase = true)) {
@@ -159,8 +165,8 @@ private fun detectPairingEnvelopeType(input: String): String? {
     val parts = trimmed.split(":", limit = 3)
     return if (parts.size == 3 && parts[0] == "KNET1" && parts[1].startsWith("PAIRING_")) parts[1] else null
 }
-private fun decodeChatEnvelope(input: String): String? = decodePairingEnvelope(input, "CHAT")
-private fun decodeReceiptEnvelope(input: String): String? = decodePairingEnvelope(input, "RECEIPT")
+private fun decodeChatEnvelope(input: String): String? = decodeTypedEnvelope(input, "CHAT")
+private fun decodeReceiptEnvelope(input: String): String? = decodeTypedEnvelope(input, "RECEIPT")
 
 private fun extractJsonValue(json: String, key: String): String? {
     val pattern = Regex("\\\"$key\\\"\\s*:\\s*\\\"([^\\\"]*)\\\"")
@@ -1395,6 +1401,7 @@ private fun PairContactScreen(cryptoBridge: CryptoBridge?, qrScannerBridge: QrSc
                 setResult("Scan QR", cryptoBridge!!.acceptPairingOffer(oJson, localPeerId.trim(), localName.trim().ifBlank { localPeerId.trim() })) { aJson ->
                     verificationCode = extractJsonValue(aJson, "verificationCode").orEmpty()
                     acceptanceEnvelope = encodePairingEnvelope("PAIRING_ACCEPT", aJson)
+                    pairingMode = "receive"
                     savePairedContact(senderPeerId, senderName, extractJsonValue(oJson, "identityPublicKey"), null, null)
                 }
             }
