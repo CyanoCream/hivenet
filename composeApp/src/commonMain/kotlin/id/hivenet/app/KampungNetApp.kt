@@ -100,7 +100,7 @@ private val PrimarySubtle: Color
 
 // ── Enums / models (unchanged) ───────────────────────────────────────────────
 
-private enum class Screen { Onboarding, Home, Profile, NewChoice, NewChat, NewGroup, Chat, GroupInfo, CryptoDebug, PairContact, EncryptedChatList, EncryptedChat, MeshDebug }
+private enum class Screen { Welcome, Onboarding, Home, Profile, NewChoice, NewChat, NewGroup, Chat, GroupInfo, CryptoDebug, PairContact, EncryptedChatList, EncryptedChat, MeshDebug }
 private enum class RoomTab { Chat, Sos, Ht }
 private enum class ThreadFilter { All, Groups, Personal }
 
@@ -264,7 +264,7 @@ fun KampungNetApp(
     val encryptedChatRepository = chatRepository
     var localIdentity by remember { mutableStateOf(identityRepository?.get()) }
     val peers = remember { emptyList<Peer>() }
-    var screen by remember { mutableStateOf(if (localIdentity == null) Screen.Onboarding else Screen.Home) }
+    var screen by remember { mutableStateOf(if (localIdentity == null) Screen.Welcome else Screen.Home) }
     var selectedThreadId by remember { mutableStateOf<String?>(null) }
     var pendingThread by remember { mutableStateOf<ChatThread?>(null) }
     var selectedEncryptedPeerId by remember { mutableStateOf<String?>(null) }
@@ -290,6 +290,7 @@ fun KampungNetApp(
             screen == Screen.GroupInfo -> screen = Screen.Chat
             screen == Screen.EncryptedChat -> screen = Screen.EncryptedChatList
             screen == Screen.Profile -> backHome()
+            screen == Screen.Onboarding && localIdentity == null -> screen = Screen.Welcome
             screen == Screen.NewChat || screen == Screen.NewGroup || screen == Screen.NewChoice -> backHome()
             screen != Screen.Home -> backHome()
         }
@@ -301,10 +302,11 @@ fun KampungNetApp(
         colorScheme = if (darkMode) darkColorScheme(primary = Primary, background = AppBg, surface = CardBg, onSurface = Ink, error = Danger)
                       else lightColorScheme(primary = Primary, background = AppBg, surface = CardBg, onSurface = Ink, error = Danger)
     ) {
-        PlatformBackHandler(enabled = (screen != Screen.Home && screen != Screen.Onboarding) || showSosSheet || sosOverlay != null) { handleBack() }
+        PlatformBackHandler(enabled = (screen != Screen.Home && screen != Screen.Welcome) || showSosSheet || sosOverlay != null) { handleBack() }
         Box(Modifier.fillMaxSize().background(AppBg).navigationBarsPadding()) {
             when (screen) {
-                Screen.Onboarding -> OnboardingScreen(identityRepository, onCreated = { identity -> localIdentity = identity; screen = Screen.Home })
+                Screen.Welcome -> WelcomeScreen(onRegister = { screen = Screen.Onboarding })
+                Screen.Onboarding -> OnboardingScreen(identityRepository, onBack = { screen = Screen.Welcome }, onCreated = { identity -> localIdentity = identity; screen = Screen.Home })
                 Screen.Home -> HomeScreen(threads, localIdentity, onOpen = ::openThread, onDelete = { threadId -> threads.removeAll { it.id == threadId } }, onNewChat = { screen = Screen.NewChat }, onNewGroup = { screen = Screen.NewGroup }, onGlobalSos = { showSosSheet = true }, onProfile = { screen = Screen.Profile }, onCrypto = { screen = Screen.CryptoDebug }, onPair = { screen = Screen.PairContact }, onEncryptedChat = { screen = Screen.EncryptedChatList }, onMesh = { screen = Screen.MeshDebug })
                 Screen.Profile -> ProfileScreen(localIdentity, identityRepository, onBack = ::backHome, onSaved = { localIdentity = it })
                 Screen.NewChoice -> NewChoiceScreen(onBack = ::backHome, onChat = { screen = Screen.NewChat }, onGroup = { screen = Screen.NewGroup })
@@ -373,7 +375,34 @@ fun KampungNetApp(
 // ── Onboarding / Profile ──────────────────────────────────────────────────────
 
 @Composable
-private fun OnboardingScreen(repository: LocalIdentityRepository?, onCreated: (LocalIdentity) -> Unit) {
+private fun WelcomeScreen(onRegister: () -> Unit) {
+    Column(
+        Modifier.fillMaxSize().background(AppBg).statusBarsPadding().padding(24.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        HiveLogo(Modifier.size(88.dp))
+        Spacer(Modifier.height(20.dp))
+        Text("Selamat datang di HiveNet", color = Ink, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Messenger mesh offline-first untuk komunikasi lokal saat jaringan terbatas.",
+            color = Muted,
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Spacer(Modifier.height(24.dp))
+        Button(
+            onClick = onRegister,
+            modifier = Modifier.fillMaxWidth().height(50.dp),
+            shape = RoundedCornerShape(14.dp)
+        ) { Text("Daftar") }
+        Spacer(Modifier.height(10.dp))
+        Text("Identitas tersimpan lokal di perangkat ini.", color = Muted, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
+private fun OnboardingScreen(repository: LocalIdentityRepository?, onBack: () -> Unit, onCreated: (LocalIdentity) -> Unit) {
     var name by remember { mutableStateOf("") }
     var role by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
@@ -402,6 +431,11 @@ private fun OnboardingScreen(repository: LocalIdentityRepository?, onCreated: (L
             modifier = Modifier.fillMaxWidth().height(48.dp),
             shape = RoundedCornerShape(14.dp)
         ) { Text("Buat Identitas") }
+        OutlinedButton(
+            onClick = onBack,
+            modifier = Modifier.fillMaxWidth().height(48.dp),
+            shape = RoundedCornerShape(14.dp)
+        ) { Text("Kembali") }
     }
 }
 
