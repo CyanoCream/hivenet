@@ -379,7 +379,7 @@ fun KampungNetApp(
                     }
                 }
                 Screen.CryptoDebug -> CryptoDebugScreen(cryptoBridge, onBack = ::backHome)
-                Screen.PairContact -> PairContactScreen(cryptoBridge, qrScannerBridge, encryptedChatRepository, onBack = ::backHome)
+                Screen.PairContact -> PairContactScreen(cryptoBridge, qrScannerBridge, encryptedChatRepository, identityRepository, onBack = ::backHome)
                 Screen.EncryptedChatList -> EncryptedChatListScreen(encryptedChatRepository, onBack = ::backHome, onPair = { screen = Screen.PairContact }, onOpen = { peerId -> selectedEncryptedPeerId = peerId; screen = Screen.EncryptedChat })
                 Screen.EncryptedChat -> EncryptedChatScreen(cryptoBridge, meshBridge, encryptedChatRepository, initialContactPeerId = selectedEncryptedPeerId, onBack = { screen = Screen.EncryptedChatList })
                 Screen.MeshDebug -> MeshDebugScreen(cryptoBridge, meshBridge, notificationBridge, notificationsEnabled, notificationPreviewEnabled, encryptedChatRepository, onBack = ::backHome)
@@ -1169,10 +1169,10 @@ private fun CryptoDebugScreen(cryptoBridge: CryptoBridge?, onBack: () -> Unit) {
 // ── Pair contact ──────────────────────────────────────────────────────────────
 
 @Composable
-private fun PairContactScreen(cryptoBridge: CryptoBridge?, qrScannerBridge: QrScannerBridge?, repository: EncryptedChatRepository?, onBack: () -> Unit) {
-    var localPeerId by remember { mutableStateOf("iphone-a") }
-    var localName by remember { mutableStateOf("Me") }
-    var contactPeerId by remember { mutableStateOf("iphone-b") }
+private fun PairContactScreen(cryptoBridge: CryptoBridge?, qrScannerBridge: QrScannerBridge?, repository: EncryptedChatRepository?, identityRepository: LocalIdentityRepository?, onBack: () -> Unit) {
+    val identity = remember { identityRepository?.get() }
+    var localPeerId by remember { mutableStateOf(identity?.peerId.orEmpty()) }
+    var localName by remember { mutableStateOf(identity?.displayName.orEmpty()) }
     var offerEnvelope by remember { mutableStateOf("") }
     var incomingOffer by remember { mutableStateOf("") }
     var acceptanceEnvelope by remember { mutableStateOf("") }
@@ -1180,10 +1180,10 @@ private fun PairContactScreen(cryptoBridge: CryptoBridge?, qrScannerBridge: QrSc
     var verificationCode by remember { mutableStateOf("") }
     var pairingMode by remember { mutableStateOf("invite") }
     var showAdvanced by remember { mutableStateOf(false) }
-    var result by remember { mutableStateOf(if (cryptoBridge == null) "Pairing not available on this platform." else "Pilih Undang Kontak atau Scan Undangan.") }
+    var result by remember { mutableStateOf(if (cryptoBridge == null) "Pairing not available on this platform." else "Tampilkan QR kamu atau scan QR kontak. Kontak tersimpan otomatis setelah scan.") }
 
     fun setResult(label: String, cryptoResult: CryptoBridgeResult, onSuccess: (String) -> Unit = {}) {
-        if (cryptoResult.ok) { onSuccess(cryptoResult.value.orEmpty()); result = "$label succeeded" }
+        if (cryptoResult.ok) { result = "$label succeeded"; onSuccess(cryptoResult.value.orEmpty()) }
         else result = "$label failed: ${cryptoResult.error.orEmpty()}"
     }
     fun missingBridge(label: String): Boolean {
@@ -1192,22 +1192,23 @@ private fun PairContactScreen(cryptoBridge: CryptoBridge?, qrScannerBridge: QrSc
     }
     fun scanQr(label: String, onToken: (String) -> Unit) {
         val scanner = qrScannerBridge ?: run { result = "$label failed: QR scanner not available"; return }
-        result = "Camera open. Point at pairing QR."
+        result = "Camera open. Point at contact QR."
         scanner.scanPairingToken { scanResult ->
-            if (scanResult.ok) { onToken(scanResult.value.orEmpty().trim()); result = "$label succeeded" }
+            if (scanResult.ok) onToken(scanResult.value.orEmpty().trim())
             else result = "$label failed: ${scanResult.error.orEmpty()}"
         }
     }
     fun savePairedContact(peerId: String, displayName: String, identityPublicKey: String?, keyId: String?, secretRef: String?) {
         val repo = repository ?: run { result = "Pairing succeeded, but database not available. Contact: $peerId."; return }
         repo.saveTrustedContact(peerId, displayName.ifBlank { peerId }, identityPublicKey, keyId, secretRef, SystemClock.nowMillis())
-        result = "Paired! Contact saved: $peerId."
+        result = "Kontak tersimpan: ${displayName.ifBlank { peerId }}."
     }
 
     FormScaffold("Add Contact", "Pairing aman via QR · E2EE keys", onBack) {
         Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), color = CardBg, tonalElevation = 1.dp) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(localName, { localName = it }, Modifier.fillMaxWidth(), label = { Text("Your name") }, placeholder = { Text("e.g. Andi") }, singleLine = true, shape = RoundedCornerShape(12.dp))
+                Text("Peer ID: ${localPeerId.ifBlank { "belum ada identitas" }}", color = Muted, style = MaterialTheme.typography.bodySmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button({ pairingMode = "invite" }, Modifier.weight(1f).height(42.dp), shape = RoundedCornerShape(999.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = if (pairingMode == "invite") Primary else AppBg, contentColor = if (pairingMode == "invite") Color.White else Ink),
@@ -1220,37 +1221,37 @@ private fun PairContactScreen(cryptoBridge: CryptoBridge?, qrScannerBridge: QrSc
         }
 
         if (pairingMode == "invite") {
-            InfoCard("1. Buat undangan", "Tampilkan QR ini di HP kamu. HP teman pilih Scan Undangan lalu scan QR ini.")
+            InfoCard("1. Tampilkan QR saya", "Teman scan QR ini. Setelah scan, kontak kamu langsung tersimpan di HP teman.")
             PrimaryButton("Buat Invite QR") {
-                if (!missingBridge("Create invite")) setResult("Create invite", cryptoBridge!!.createPairingOffer(contactPeerId.trim(), localPeerId.trim(), localName.trim().ifBlank { "Me" })) { json -> offerEnvelope = encodePairingEnvelope("PAIRING_OFFER", json) }
+                if (localPeerId.isBlank()) result = "Buat identitas dulu dari onboarding/profile."
+                else if (!missingBridge("Create invite")) setResult("Create invite", cryptoBridge!!.createPairingOffer("", localPeerId.trim(), localName.trim().ifBlank { localPeerId.trim() })) { json -> offerEnvelope = encodePairingEnvelope("PAIRING_OFFER", json); result = "QR siap. Minta teman scan." }
             }
-            PairingQrCard("Invite QR", offerEnvelope, "Show this to your contact.")
-            InfoCard("2. Scan response", "Setelah teman tap Terima Undangan, scan Response QR dari HP teman untuk menyelesaikan pairing.")
-            OutlinedButton({ scanQr("Scan response") { token -> incomingAcceptance = token } }, Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(999.dp)) { Text("Scan Response QR dari Teman") }
-            PrimaryButton("Selesaikan Pairing", color = Color(0xFF10B981)) {
-                if (!missingBridge("Complete pairing")) {
-                    val aJson = decodePairingEnvelope(incomingAcceptance, "PAIRING_ACCEPT") ?: run { result = "Scan the response QR first."; return@PrimaryButton }
+            PairingQrCard("QR Saya", offerEnvelope, "Tampilkan ke kontak.")
+            InfoCard("2. Scan QR balasan", "Kalau teman sudah scan QR kamu, scan QR balasan dari HP teman. Kontak teman langsung tersimpan di HP kamu.")
+            OutlinedButton({ scanQr("Scan response") { token ->
+                incomingAcceptance = token
+                if (!missingBridge("Scan response")) {
+                    val aJson = decodePairingEnvelope(incomingAcceptance, "PAIRING_ACCEPT") ?: run { result = "QR balasan tidak valid."; return@scanQr }
                     verificationCode = extractJsonValue(aJson, "verificationCode").orEmpty()
-                    setResult("Complete pairing", cryptoBridge!!.completePairing(aJson, localPeerId.trim())) { keyJson ->
+                    setResult("Scan response", cryptoBridge!!.completePairing(aJson, localPeerId.trim())) { keyJson ->
                         savePairedContact(extractJsonValue(keyJson, "contactPeerId").orEmpty(), extractJsonValue(aJson, "responderName").orEmpty(), extractJsonValue(aJson, "identityPublicKey"), extractJsonValue(keyJson, "keyId").orEmpty(), extractJsonValue(keyJson, "keyId").orEmpty())
                     }
                 }
-            }
+            } }, Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(999.dp)) { Text("Scan QR Balasan") }
         } else {
-            InfoCard("1. Scan undangan", "Minta teman membuka Undang Kontak dan menampilkan Invite QR, lalu scan dari HP ini.")
-            OutlinedButton({ scanQr("Scan invite") { token -> incomingOffer = token } }, Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(999.dp)) { Text("Scan Invite QR dari Teman") }
-            PrimaryButton("Terima Undangan") {
-                if (!missingBridge("Accept invite")) {
-                    val oJson = decodePairingEnvelope(incomingOffer, "PAIRING_OFFER") ?: run { result = "Scan the invite QR first."; return@PrimaryButton }
-                    setResult("Accept invite", cryptoBridge!!.acceptPairingOffer(oJson, localPeerId.trim(), localName.trim().ifBlank { "Me" })) { aJson ->
+            InfoCard("1. Scan QR kontak", "Scan QR dari HP teman. Kontak teman langsung tersimpan di HP kamu, lalu QR balasan muncul untuk discan teman.")
+            OutlinedButton({ scanQr("Scan contact QR") { token ->
+                incomingOffer = token
+                if (!missingBridge("Scan contact QR")) {
+                    val oJson = decodePairingEnvelope(incomingOffer, "PAIRING_OFFER") ?: run { result = "QR kontak tidak valid."; return@scanQr }
+                    setResult("Scan contact QR", cryptoBridge!!.acceptPairingOffer(oJson, localPeerId.trim(), localName.trim().ifBlank { localPeerId.trim() })) { aJson ->
                         verificationCode = extractJsonValue(aJson, "verificationCode").orEmpty()
                         acceptanceEnvelope = encodePairingEnvelope("PAIRING_ACCEPT", aJson)
                         savePairedContact(extractJsonValue(oJson, "senderPeerId").orEmpty(), extractJsonValue(oJson, "senderName").orEmpty(), extractJsonValue(oJson, "identityPublicKey"), null, null)
                     }
                 }
-            }
-            InfoCard("2. Tampilkan response", "Setelah diterima, tunjukkan Response QR ini ke teman. Teman scan untuk menyelesaikan pairing.")
-            PairingQrCard("Response QR", acceptanceEnvelope, "Your contact scans this to complete.")
+            } }, Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(999.dp)) { Text("Scan QR Kontak") }
+            PairingQrCard("QR Balasan", acceptanceEnvelope, "Tampilkan ke teman agar kontak kamu tersimpan di HP teman.")
         }
 
         if (verificationCode.isNotBlank()) {
@@ -1266,7 +1267,7 @@ private fun PairContactScreen(cryptoBridge: CryptoBridge?, qrScannerBridge: QrSc
         OutlinedButton({ showAdvanced = !showAdvanced }, Modifier.fillMaxWidth().height(42.dp), shape = RoundedCornerShape(999.dp)) { Text(if (showAdvanced) "Hide Advanced" else "Advanced / Manual Token") }
         if (showAdvanced) {
             OutlinedTextField(localPeerId, { localPeerId = it }, Modifier.fillMaxWidth(), label = { Text("My peer ID") }, singleLine = true, shape = RoundedCornerShape(12.dp))
-            OutlinedTextField(contactPeerId, { contactPeerId = it }, Modifier.fillMaxWidth(), label = { Text("Contact peer ID") }, singleLine = true, shape = RoundedCornerShape(12.dp))
+            Text("Manual peer ID add belum aktif. QR scan auto-add untuk pairing tatap muka.", color = Muted, style = MaterialTheme.typography.bodySmall)
             InfoCard("Manual token", "Dipakai kalau kamera/QR bermasalah. HP pengundang salin invite token. HP penerima tempel sebagai invite dari teman, lalu salin response token. HP pengundang tempel sebagai response dari teman.")
             OutlinedTextField(offerEnvelope, { offerEnvelope = it }, Modifier.fillMaxWidth().height(88.dp), label = { Text("Invite token dari HP ini") }, shape = RoundedCornerShape(12.dp))
             OutlinedTextField(incomingOffer, { incomingOffer = it }, Modifier.fillMaxWidth().height(88.dp), label = { Text("Invite token dari teman") }, shape = RoundedCornerShape(12.dp))
