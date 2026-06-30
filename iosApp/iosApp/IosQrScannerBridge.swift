@@ -40,7 +40,7 @@ final class IosQrScannerBridge: NSObject, QrScannerBridge {
         let scanner = QrScannerViewController { [weak self] token in
             self?.activeScanner = nil
             if let token = token,
-               token.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("{") && token.contains("\"sessionId\"") {
+               token.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("{") {
                 onResult(CryptoBridgeResult(ok: true, value: token, error: nil))
             } else if let token = token, token.hasPrefix("KNET1:PAIRING_") {
                 onResult(CryptoBridgeResult(ok: true, value: token, error: nil))
