@@ -1065,6 +1065,18 @@ private fun EncryptedChatScreen(cryptoBridge: CryptoBridge?, meshBridge: MeshBri
 
     fun associatedData(peerId: String): String = "kampungnet-chat-v1:$peerId".toBase64()
 
+    fun ensureMeshStartedFromChat(): String? {
+        val bridge = meshBridge ?: return "Mesh bridge not available."
+        val senderPeerId = localPeerId.trim().ifBlank { "local-device" }
+        val statusResult = bridge.status()
+        val statusText = statusResult.value.orEmpty()
+        val state = meshStatusValue(statusText, "state")
+        val alreadyActive = statusResult.ok && (state == "active" || (state == null && !statusText.contains("Stopped", ignoreCase = true) && !statusText.contains("local=-")))
+        if (alreadyActive) return null
+        val startResult = bridge.start(senderPeerId)
+        return if (startResult.ok) "Mesh started for chat." else "Mesh start failed: ${startResult.error.orEmpty()}"
+    }
+
     fun refreshMessages() {
         contacts = repository?.trustedContacts().orEmpty()
         messages = repository?.chatMessagesForThread(contactPeerId.trim(), 50).orEmpty()
@@ -1096,6 +1108,7 @@ private fun EncryptedChatScreen(cryptoBridge: CryptoBridge?, meshBridge: MeshBri
     fun sendPendingOutboxFromChat(): String {
         val bridge = meshBridge ?: return "Mesh not started. Open Local Mesh to sync."
         val repo = repository ?: return "Database not available."
+        ensureMeshStartedFromChat()?.let { if (it.startsWith("Mesh start failed")) return "Saved locally. $it" }
         meshReadyForBroadcast(bridge)?.let { return "Saved locally. $it" }
         val pending = repo.retryableOutboxPackets(SystemClock.nowMillis())
         if (pending.isEmpty()) return "No pending outbox."
@@ -1172,6 +1185,7 @@ private fun EncryptedChatScreen(cryptoBridge: CryptoBridge?, meshBridge: MeshBri
 
     LaunchedEffect(contactPeerId) { markThreadReadAndNotify()?.let { status = it }; refreshMessages() }
     LaunchedEffect(initialContactPeerId) { if (!initialContactPeerId.isNullOrBlank()) contactPeerId = initialContactPeerId }
+    LaunchedEffect(localPeerId, meshBridge) { ensureMeshStartedFromChat()?.let { status = it } }
     LaunchedEffect(contactPeerId, repository, meshBridge, cryptoBridge) {
         while (repository != null) {
             drainIncomingFromChat()?.let { status = it }
