@@ -26,6 +26,7 @@ class MainActivity : ComponentActivity() {
         val identityRepository = LocalIdentityRepository(database)
         val cryptoBridge = AndroidCryptoBridge(applicationContext)
         val qrScannerBridge = AndroidQrScannerBridge(this)
+        val notificationBridge = AndroidNotificationBridge(this)
         meshBridge = AndroidUdpMeshBridge(applicationContext)
 
         wifiDirectBridge = AndroidWifiDirectBridge(
@@ -41,6 +42,7 @@ class MainActivity : ComponentActivity() {
                 cryptoBridge = cryptoBridge,
                 meshBridge = meshBridge,
                 qrScannerBridge = qrScannerBridge,
+                notificationBridge = notificationBridge,
                 chatRepository = chatRepository,
                 identityRepository = identityRepository,
             )

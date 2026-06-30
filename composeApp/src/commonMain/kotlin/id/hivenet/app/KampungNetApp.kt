@@ -261,6 +261,7 @@ fun KampungNetApp(
     cryptoBridge: CryptoBridge? = null,
     meshBridge: MeshBridge? = null,
     qrScannerBridge: QrScannerBridge? = null,
+    notificationBridge: NotificationBridge? = null,
     chatRepository: EncryptedChatRepository? = null,
     identityRepository: LocalIdentityRepository? = null,
 ) {
@@ -272,6 +273,9 @@ fun KampungNetApp(
     var pendingThread by remember { mutableStateOf<ChatThread?>(null) }
     var selectedEncryptedPeerId by remember { mutableStateOf<String?>(null) }
     var animationsEnabled by remember { mutableStateOf(true) }
+    var notificationsEnabled by remember { mutableStateOf(true) }
+    var notificationPreviewEnabled by remember { mutableStateOf(true) }
+    var sosNotificationsEnabled by remember { mutableStateOf(true) }
     var roomTab by remember { mutableStateOf(RoomTab.Chat) }
     var showSosSheet by remember { mutableStateOf(false) }
     var sosOverlay by remember { mutableStateOf<SOSOverlayState?>(null) }
@@ -314,7 +318,21 @@ fun KampungNetApp(
                 Screen.Welcome -> WelcomeScreen(onRegister = { screen = Screen.Onboarding })
                 Screen.Onboarding -> OnboardingScreen(identityRepository, onBack = { screen = Screen.Welcome }, onCreated = { identity -> localIdentity = identity; screen = Screen.Home })
                 Screen.Home -> HomeScreen(threads, localIdentity, onOpen = ::openThread, onDelete = { threadId -> threads.removeAll { it.id == threadId } }, onNewChat = { screen = Screen.NewChat }, onNewGroup = { screen = Screen.NewGroup }, onGlobalSos = { showSosSheet = true }, onSettings = { screen = Screen.Settings }, onProfile = { screen = Screen.Profile }, onCrypto = { screen = Screen.CryptoDebug }, onPair = { screen = Screen.PairContact }, onEncryptedChat = { screen = Screen.EncryptedChatList }, onMesh = { screen = Screen.MeshDebug })
-                Screen.Settings -> SettingsScreen(animationsEnabled, onAnimationsChanged = { animationsEnabled = it }, onBack = ::backHome, onProfile = { screen = Screen.Profile }, onPair = { screen = Screen.PairContact }, onMesh = { screen = Screen.MeshDebug })
+                Screen.Settings -> SettingsScreen(
+                    notificationBridge = notificationBridge,
+                    animationsEnabled = animationsEnabled,
+                    notificationsEnabled = notificationsEnabled,
+                    notificationPreviewEnabled = notificationPreviewEnabled,
+                    sosNotificationsEnabled = sosNotificationsEnabled,
+                    onAnimationsChanged = { animationsEnabled = it },
+                    onNotificationsChanged = { notificationsEnabled = it },
+                    onNotificationPreviewChanged = { notificationPreviewEnabled = it },
+                    onSosNotificationsChanged = { sosNotificationsEnabled = it },
+                    onBack = ::backHome,
+                    onProfile = { screen = Screen.Profile },
+                    onPair = { screen = Screen.PairContact },
+                    onMesh = { screen = Screen.MeshDebug },
+                )
                 Screen.Profile -> ProfileScreen(localIdentity, identityRepository, onBack = ::backHome, onSaved = { localIdentity = it })
                 Screen.NewChoice -> NewChoiceScreen(onBack = ::backHome, onChat = { screen = Screen.NewChat }, onGroup = { screen = Screen.NewGroup })
                 Screen.NewChat -> NewChatScreen(peers, onBack = ::backHome, onAddContact = { screen = Screen.PairContact }) { peer, first ->
@@ -362,7 +380,7 @@ fun KampungNetApp(
                 Screen.PairContact -> PairContactScreen(cryptoBridge, qrScannerBridge, encryptedChatRepository, onBack = ::backHome)
                 Screen.EncryptedChatList -> EncryptedChatListScreen(encryptedChatRepository, onBack = ::backHome, onPair = { screen = Screen.PairContact }, onOpen = { peerId -> selectedEncryptedPeerId = peerId; screen = Screen.EncryptedChat })
                 Screen.EncryptedChat -> EncryptedChatScreen(cryptoBridge, meshBridge, encryptedChatRepository, initialContactPeerId = selectedEncryptedPeerId, onBack = { screen = Screen.EncryptedChatList })
-                Screen.MeshDebug -> MeshDebugScreen(cryptoBridge, meshBridge, encryptedChatRepository, onBack = ::backHome)
+                Screen.MeshDebug -> MeshDebugScreen(cryptoBridge, meshBridge, notificationBridge, notificationsEnabled, notificationPreviewEnabled, encryptedChatRepository, onBack = ::backHome)
             }
             }
             if (animationsEnabled) Crossfade(targetState = screen, animationSpec = tween(180), label = "screen") { renderScreen(it) } else renderScreen(screen)
@@ -502,13 +520,21 @@ private fun ProfileValue(label: String, value: String) {
 
 @Composable
 private fun SettingsScreen(
+    notificationBridge: NotificationBridge?,
     animationsEnabled: Boolean,
+    notificationsEnabled: Boolean,
+    notificationPreviewEnabled: Boolean,
+    sosNotificationsEnabled: Boolean,
     onAnimationsChanged: (Boolean) -> Unit,
+    onNotificationsChanged: (Boolean) -> Unit,
+    onNotificationPreviewChanged: (Boolean) -> Unit,
+    onSosNotificationsChanged: (Boolean) -> Unit,
     onBack: () -> Unit,
     onProfile: () -> Unit,
     onPair: () -> Unit,
     onMesh: () -> Unit,
 ) {
+    var notificationStatus by remember { mutableStateOf(if (notificationBridge == null) "Notification bridge not available." else "Notification ready.") }
     Column(Modifier.fillMaxSize()) {
         Header("Settings", "App behavior and safety", onBack)
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -521,11 +547,46 @@ private fun SettingsScreen(
                     Switch(checked = animationsEnabled, onCheckedChange = onAnimationsChanged)
                 }
             }
+            Surface(Modifier.fillMaxWidth(), color = CardBg, shape = RoundedCornerShape(16.dp), tonalElevation = 1.dp) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Notifications", color = Ink, fontWeight = FontWeight.Bold)
+                            Text("Local notification only after message diterima, decrypt sukses, dan tersimpan.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                        }
+                        Switch(checked = notificationsEnabled, onCheckedChange = onNotificationsChanged)
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Show message preview", color = Ink, fontWeight = FontWeight.SemiBold)
+                            Text("Matikan kalau tidak mau isi pesan tampil di lock screen.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                        }
+                        Switch(checked = notificationPreviewEnabled, onCheckedChange = onNotificationPreviewChanged, enabled = notificationsEnabled)
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("SOS alerts", color = Ink, fontWeight = FontWeight.SemiBold)
+                            Text("Untuk alert darurat lokal setelah packet valid diterima.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                        }
+                        Switch(checked = sosNotificationsEnabled, onCheckedChange = onSosNotificationsChanged, enabled = notificationsEnabled)
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            val bridge = notificationBridge
+                            if (bridge == null) notificationStatus = "Notification permission failed: bridge not available."
+                            else bridge.requestPermissionIfNeeded { result -> notificationStatus = if (result.ok) result.value.orEmpty() else "Notification permission failed: ${result.error.orEmpty()}" }
+                        },
+                        modifier = Modifier.fillMaxWidth().height(44.dp),
+                        shape = RoundedCornerShape(999.dp),
+                    ) { Text("Allow Notifications") }
+                    Text(notificationStatus, color = Muted, style = MaterialTheme.typography.bodySmall)
+                }
+            }
             Text("Shortcuts", color = Muted, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
             BigAction("Profile", "Nama, jabatan, email backup, recovery code", onProfile)
             BigAction("Add Contact", "Pairing aman via QR atau token manual", onPair)
             BigAction("Local Mesh", "Start/stop dan cek koneksi mesh lokal", onMesh)
-            InfoCard("Security", "Pairing memakai X25519 + HKDF-SHA256. Message body tidak dibackup default. Simpan recovery code di tempat aman.")
+            InfoCard("Security", "Pairing memakai X25519 + HKDF-SHA256. Message body tidak dibackup default. Notif hanya local setelah pesan diterima dan tersimpan.")
         }
     }
 }
@@ -659,7 +720,15 @@ private fun HomeScreen(
 // ── Mesh Debug ────────────────────────────────────────────────────────────────
 
 @Composable
-private fun MeshDebugScreen(cryptoBridge: CryptoBridge?, meshBridge: MeshBridge?, repository: EncryptedChatRepository?, onBack: () -> Unit) {
+private fun MeshDebugScreen(
+    cryptoBridge: CryptoBridge?,
+    meshBridge: MeshBridge?,
+    notificationBridge: NotificationBridge?,
+    notificationsEnabled: Boolean,
+    notificationPreviewEnabled: Boolean,
+    repository: EncryptedChatRepository?,
+    onBack: () -> Unit,
+) {
     var localPeerId by remember { mutableStateOf("iphone-a") }
     var envelope by remember { mutableStateOf("KNET1:CHAT:paste-packet-here") }
     var received by remember { mutableStateOf("") }
@@ -774,6 +843,14 @@ private fun MeshDebugScreen(cryptoBridge: CryptoBridge?, meshBridge: MeshBridge?
                     repo.markSeenMeshPacket(seenId, SystemClock.nowMillis())
                     val plaintext = decryptResult.value.orEmpty().fromBase64OrNull().orEmpty()
                     repo.saveIncomingDecryptedChat(localId, sourcePeerId, plaintext, SystemClock.nowMillis())
+                    if (notificationsEnabled) {
+                        notificationBridge?.showMessageNotification(
+                            threadId = sourcePeerId,
+                            senderName = sourcePeerId,
+                            preview = plaintext,
+                            showPreview = notificationPreviewEnabled,
+                        )
+                    }
                     decrypted += 1
                     val receiptJson = deliveryReceiptJson(chatPacketId(payloadJson) ?: meshPacketId(packet.envelope), localId, sourcePeerId, SystemClock.nowMillis())
                     bridge.broadcast(encodeReceiptEnvelope(receiptJson))

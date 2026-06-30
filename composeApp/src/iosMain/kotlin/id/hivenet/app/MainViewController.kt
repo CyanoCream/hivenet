@@ -17,6 +17,7 @@ fun MainViewController(cryptoBridge: CryptoBridge? = null, meshBridge: MeshBridg
         cryptoBridge = cryptoBridge,
         meshBridge = meshBridge,
         qrScannerBridge = qrScannerBridge,
+        notificationBridge = remember { IosNotificationBridge() },
         chatRepository = repositories.first,
         identityRepository = repositories.second,
     )
