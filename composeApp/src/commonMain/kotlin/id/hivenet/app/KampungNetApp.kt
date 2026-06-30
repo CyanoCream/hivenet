@@ -232,6 +232,16 @@ private fun messageStatusLabel(message: ChatMessageItem?): String = when (messag
     else -> message.status.lowercase().replaceFirstChar { it.uppercase() }
 }
 
+private fun userSafeCryptoError(error: String): String = when {
+    error.contains("sessionId", ignoreCase = true) || error.contains("missingIdentity", ignoreCase = true) ->
+        "QR balasan tidak cocok dengan invite di HP ini. Buat invite QR baru dari HP ini, lalu minta teman scan ulang."
+    error.contains("invalidPeerKey", ignoreCase = true) || error.contains("verification", ignoreCase = true) ->
+        "Kunci pairing tidak cocok. Ulangi pairing dari awal."
+    error.contains("keyNotFound", ignoreCase = true) || error.contains("DecodingError", ignoreCase = true) ->
+        "QR pairing tidak valid. Scan QR invite/balasan HiveNet terbaru."
+    else -> error.take(160)
+}
+
 private fun stableEnvelopeId(value: String): String {
     var hash = 0xcbf29ce484222325UL
     value.encodeToByteArray().forEach { byte -> hash = hash xor byte.toUByte().toULong(); hash *= 0x100000001b3UL }
@@ -1102,9 +1112,73 @@ private fun EncryptedChatScreen(cryptoBridge: CryptoBridge?, meshBridge: MeshBri
         return if (failed == null) "Sent $sent messages." else "Partial. sent=$sent, failed=$failed"
     }
 
+    fun drainIncomingFromChat(): String? {
+        val bridge = meshBridge ?: return null
+        val crypto = cryptoBridge ?: return null
+        val repo = repository ?: return null
+        val result = bridge.drainReceived()
+        if (!result.ok) return "Receive failed: ${result.error.orEmpty()}"
+        val raw = result.value.orEmpty()
+        val packets = parseReceivedChatPackets(raw)
+        val receipts = parseReceivedReceiptPackets(raw)
+        if (packets.isEmpty() && receipts.isEmpty()) return null
+        val localId = localPeerId.trim().ifBlank { "local-device" }
+        var changed = 0
+        receipts.forEach { receipt ->
+            val json = decodeReceiptEnvelope(receipt.envelope) ?: return@forEach
+            val seenId = receiptSeenPacketId(json, receipt.envelope)
+            if (repo.hasSeenMeshPacket(seenId, SystemClock.nowMillis())) return@forEach
+            repo.markSeenMeshPacket(seenId, SystemClock.nowMillis())
+            val packetId = extractJsonValue(json, "packet_id") ?: meshPacketId(receipt.envelope)
+            val messageId = extractJsonValue(json, "message_id") ?: packetId
+            val senderPeerId = extractJsonValue(json, "sender_peer_id") ?: receipt.fromPeerId
+            val targetPeerId = extractJsonValue(json, "target_peer_id") ?: localId
+            val receiptStatus = extractJsonValue(json, "status") ?: "DELIVERED"
+            val receiptTimestamp = extractJsonLong(json, "timestamp") ?: SystemClock.nowMillis()
+            if (senderPeerId == localId) return@forEach
+            repo.saveDeliveryReceipt(messageId, packetId, senderPeerId, targetPeerId, receiptStatus, receiptTimestamp)
+            if (targetPeerId == localId && receiptStatus == "DELIVERED") repo.markDeliveredFromReceipt(packetId, SystemClock.nowMillis())
+            if (targetPeerId == localId && receiptStatus == "READ") repo.markReadFromReceipt(packetId, SystemClock.nowMillis())
+            changed += 1
+        }
+        packets.forEach { packet ->
+            val payloadJson = decodeChatEnvelope(packet.envelope) ?: return@forEach
+            val seenId = chatSeenPacketId(payloadJson, packet.envelope)
+            if (repo.hasSeenMeshPacket(seenId, SystemClock.nowMillis())) return@forEach
+            val sourcePeerId = chatPacketSourcePeerId(payloadJson) ?: packet.fromPeerId
+            val targetPeerId = chatPacketTargetPeerId(payloadJson)
+            val encryptedPayloadJson = chatPacketPayloadJson(payloadJson)
+            if (sourcePeerId == localId) { repo.markSeenMeshPacket(seenId, SystemClock.nowMillis()); return@forEach }
+            if (!targetPeerId.isNullOrBlank() && targetPeerId != localId) {
+                repo.markSeenMeshPacket(seenId, SystemClock.nowMillis())
+                repo.saveRelayChatPacket(relayPacketId(packet.envelope), sourcePeerId, targetPeerId, payloadJson, SystemClock.nowMillis())
+                return@forEach
+            }
+            val aad = "kampungnet-chat-v1:$sourcePeerId".toBase64()
+            val decryptResult = crypto.decrypt(sourcePeerId, encryptedPayloadJson, aad)
+            repo.markSeenMeshPacket(seenId, SystemClock.nowMillis())
+            if (decryptResult.ok) {
+                val plaintext = decryptResult.value.orEmpty().fromBase64OrNull().orEmpty()
+                repo.saveIncomingDecryptedChat(localId, sourcePeerId, plaintext, SystemClock.nowMillis())
+                val receiptJson = deliveryReceiptJson(chatPacketId(payloadJson) ?: meshPacketId(packet.envelope), localId, sourcePeerId, SystemClock.nowMillis())
+                bridge.broadcast(encodeReceiptEnvelope(receiptJson))
+                changed += 1
+            } else {
+                repo.saveRelayChatPacket(relayPacketId(packet.envelope), sourcePeerId, targetPeerId, payloadJson, SystemClock.nowMillis())
+            }
+        }
+        return if (changed > 0) "Received $changed update(s)." else null
+    }
+
     LaunchedEffect(contactPeerId) { markThreadReadAndNotify()?.let { status = it }; refreshMessages() }
     LaunchedEffect(initialContactPeerId) { if (!initialContactPeerId.isNullOrBlank()) contactPeerId = initialContactPeerId }
-    LaunchedEffect(contactPeerId, repository) { while (repository != null) { refreshMessages(); delay(5_000) } }
+    LaunchedEffect(contactPeerId, repository, meshBridge, cryptoBridge) {
+        while (repository != null) {
+            drainIncomingFromChat()?.let { status = it }
+            refreshMessages()
+            delay(2_000)
+        }
+    }
 
     FormScaffold("Encrypted Chat", "Offline E2EE via mesh", onBack) {
         val selectedContact = contacts.firstOrNull { it.peerId == contactPeerId }
@@ -1263,7 +1337,7 @@ private fun PairContactScreen(cryptoBridge: CryptoBridge?, qrScannerBridge: QrSc
 
     fun setResult(label: String, cryptoResult: CryptoBridgeResult, onSuccess: (String) -> Unit = {}) {
         if (cryptoResult.ok) { result = "$label succeeded"; onSuccess(cryptoResult.value.orEmpty()) }
-        else result = "$label failed: ${cryptoResult.error.orEmpty()}"
+        else result = "$label failed: ${userSafeCryptoError(cryptoResult.error.orEmpty())}"
     }
     fun missingBridge(label: String): Boolean {
         if (cryptoBridge != null) return false
@@ -1274,7 +1348,7 @@ private fun PairContactScreen(cryptoBridge: CryptoBridge?, qrScannerBridge: QrSc
         result = "Camera open. Point at contact QR."
         scanner.scanPairingToken { scanResult ->
             if (scanResult.ok) onToken(scanResult.value.orEmpty().trim())
-            else result = "$label failed: ${scanResult.error.orEmpty()}"
+            else result = "$label failed: ${userSafeCryptoError(scanResult.error.orEmpty())}"
         }
     }
     fun savePairedContact(peerId: String, displayName: String, identityPublicKey: String?, keyId: String?, secretRef: String?) {
