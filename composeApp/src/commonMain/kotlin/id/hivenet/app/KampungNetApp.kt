@@ -131,13 +131,16 @@ private fun String.toBase64(): String = Base64.encode(encodeToByteArray())
 @OptIn(ExperimentalEncodingApi::class)
 private fun String.fromBase64OrNull(): String? = runCatching { Base64.decode(this).decodeToString() }.getOrNull()
 
-private fun encodePairingEnvelope(type: String, json: String): String = "KNET1:$type:${json.toBase64()}"
+private fun encodePairingEnvelope(type: String, json: String): String = json
 private fun encodeChatEnvelope(json: String): String = "KNET1:CHAT:${json.toBase64()}"
 private fun encodeReceiptEnvelope(json: String): String = "KNET1:RECEIPT:${json.toBase64()}"
 
 private fun decodePairingEnvelope(input: String, expectedType: String): String? {
     val trimmed = input.trim()
-    if (trimmed.startsWith("{") && trimmed.contains("\"sessionId\"")) return trimmed
+    if (trimmed.startsWith("{") && trimmed.contains("\"sessionId\"")) {
+        val expectedKey = if (expectedType == "PAIRING_ACCEPT") "\"responderPeerId\"" else "\"senderPeerId\""
+        return if (trimmed.contains(expectedKey)) trimmed else null
+    }
     val parts = trimmed.split(":", limit = 3)
     if (parts.size != 3 || parts[0] != "KNET1" || parts[1] != expectedType) return null
     return parts[2].fromBase64OrNull()
@@ -1295,7 +1298,7 @@ private fun PairingQrCard(title: String, payload: String, helper: String) {
         Column(Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(title, color = Ink, fontWeight = FontWeight.Bold)
             Surface(shape = RoundedCornerShape(16.dp), color = Color.White) {
-                Image(painter = rememberQrCodePainter(payload), contentDescription = title, modifier = Modifier.size(220.dp).padding(12.dp))
+                Image(painter = rememberQrCodePainter(payload), contentDescription = title, modifier = Modifier.size(280.dp).padding(12.dp))
             }
             Text(helper, color = Muted, style = MaterialTheme.typography.bodySmall)
         }
