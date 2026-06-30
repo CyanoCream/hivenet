@@ -136,7 +136,9 @@ private fun encodeChatEnvelope(json: String): String = "KNET1:CHAT:${json.toBase
 private fun encodeReceiptEnvelope(json: String): String = "KNET1:RECEIPT:${json.toBase64()}"
 
 private fun decodePairingEnvelope(input: String, expectedType: String): String? {
-    val parts = input.trim().split(":", limit = 3)
+    val trimmed = input.trim()
+    if (trimmed.startsWith("{") && trimmed.contains("\"sessionId\"")) return trimmed
+    val parts = trimmed.split(":", limit = 3)
     if (parts.size != 3 || parts[0] != "KNET1" || parts[1] != expectedType) return null
     return parts[2].fromBase64OrNull()
 }
@@ -267,7 +269,12 @@ fun KampungNetApp(
 ) {
     val encryptedChatRepository = chatRepository
     var localIdentity by remember { mutableStateOf(identityRepository?.get()) }
-    val peers = remember { emptyList<Peer>() }
+    var contactVersion by remember { mutableStateOf(0) }
+    val peers = remember(contactVersion, encryptedChatRepository) {
+        encryptedChatRepository?.trustedContacts().orEmpty().map { contact ->
+            Peer(contact.peerId, contact.displayName, contact.peerId)
+        }
+    }
     var screen by remember { mutableStateOf(if (localIdentity == null) Screen.Welcome else Screen.Home) }
     var selectedThreadId by remember { mutableStateOf<String?>(null) }
     var pendingThread by remember { mutableStateOf<ChatThread?>(null) }
@@ -379,7 +386,7 @@ fun KampungNetApp(
                     }
                 }
                 Screen.CryptoDebug -> CryptoDebugScreen(cryptoBridge, onBack = ::backHome)
-                Screen.PairContact -> PairContactScreen(cryptoBridge, qrScannerBridge, encryptedChatRepository, identityRepository, onBack = ::backHome)
+                Screen.PairContact -> PairContactScreen(cryptoBridge, qrScannerBridge, encryptedChatRepository, identityRepository, onPaired = { contactVersion += 1 }, onBack = ::backHome)
                 Screen.EncryptedChatList -> EncryptedChatListScreen(encryptedChatRepository, onBack = ::backHome, onPair = { screen = Screen.PairContact }, onOpen = { peerId -> selectedEncryptedPeerId = peerId; screen = Screen.EncryptedChat })
                 Screen.EncryptedChat -> EncryptedChatScreen(cryptoBridge, meshBridge, encryptedChatRepository, initialContactPeerId = selectedEncryptedPeerId, onBack = { screen = Screen.EncryptedChatList })
                 Screen.MeshDebug -> MeshDebugScreen(cryptoBridge, meshBridge, notificationBridge, notificationsEnabled, notificationPreviewEnabled, encryptedChatRepository, onBack = ::backHome)
@@ -1169,7 +1176,7 @@ private fun CryptoDebugScreen(cryptoBridge: CryptoBridge?, onBack: () -> Unit) {
 // ── Pair contact ──────────────────────────────────────────────────────────────
 
 @Composable
-private fun PairContactScreen(cryptoBridge: CryptoBridge?, qrScannerBridge: QrScannerBridge?, repository: EncryptedChatRepository?, identityRepository: LocalIdentityRepository?, onBack: () -> Unit) {
+private fun PairContactScreen(cryptoBridge: CryptoBridge?, qrScannerBridge: QrScannerBridge?, repository: EncryptedChatRepository?, identityRepository: LocalIdentityRepository?, onPaired: () -> Unit, onBack: () -> Unit) {
     val identity = remember { identityRepository?.get() }
     var localPeerId by remember { mutableStateOf(identity?.peerId.orEmpty()) }
     var localName by remember { mutableStateOf(identity?.displayName.orEmpty()) }
@@ -1201,6 +1208,7 @@ private fun PairContactScreen(cryptoBridge: CryptoBridge?, qrScannerBridge: QrSc
     fun savePairedContact(peerId: String, displayName: String, identityPublicKey: String?, keyId: String?, secretRef: String?) {
         val repo = repository ?: run { result = "Pairing succeeded, but database not available. Contact: $peerId."; return }
         repo.saveTrustedContact(peerId, displayName.ifBlank { peerId }, identityPublicKey, keyId, secretRef, SystemClock.nowMillis())
+        onPaired()
         result = "Kontak tersimpan: ${displayName.ifBlank { peerId }}."
     }
 
