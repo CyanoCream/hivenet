@@ -167,6 +167,8 @@ private fun detectPairingEnvelopeType(input: String): String? {
 }
 private fun decodeChatEnvelope(input: String): String? = decodeTypedEnvelope(input, "CHAT")
 private fun decodeReceiptEnvelope(input: String): String? = decodeTypedEnvelope(input, "RECEIPT")
+private fun encodePairEnvelope(json: String): String = "KNET1:PAIR:${json.toBase64()}"
+private fun decodePairEnvelope(input: String): String? = decodeTypedEnvelope(input, "PAIR")
 
 private fun extractJsonValue(json: String, key: String): String? {
     val pattern = Regex("\\\"$key\\\"\\s*:\\s*\\\"([^\\\"]*)\\\"")
@@ -303,6 +305,14 @@ private fun parseReceivedReceiptPackets(raw: String): List<ReceivedReceiptPacket
         val envelope = lines.drop(1).joinToString("\n").trim()
         if (from.isBlank() || !envelope.startsWith("KNET1:RECEIPT:")) null else ReceivedReceiptPacket(from, envelope)
     }
+private data class ReceivedPairPacket(val fromPeerId: String, val envelope: String)
+private fun parseReceivedPairPackets(raw: String): List<ReceivedPairPacket> =
+    raw.split("\n---\n").mapNotNull { block ->
+        val lines = block.lines()
+        val from = lines.firstOrNull()?.removePrefix("from=")?.takeIf { it != lines.firstOrNull() }?.trim().orEmpty()
+        val envelope = lines.drop(1).joinToString("\n").trim()
+        if (from.isBlank() || !envelope.startsWith("KNET1:PAIR:")) null else ReceivedPairPacket(from, envelope)
+    }
 
 // ── Root composable ───────────────────────────────────────────────────────────
 
@@ -368,6 +378,110 @@ fun KampungNetApp(
                       else lightColorScheme(primary = Primary, background = AppBg, surface = CardBg, onSurface = Ink, error = Danger)
     ) {
         PlatformBackHandler(enabled = (screen != Screen.Home && screen != Screen.Welcome) || showSosSheet || sosOverlay != null) { handleBack() }
+
+        // ── Global background mesh sync ──────────────────────────────────────
+        LaunchedEffect(meshBridge, cryptoBridge, chatRepository, localIdentity) {
+            val bridge = meshBridge ?: return@LaunchedEffect
+            val crypto = cryptoBridge ?: return@LaunchedEffect
+            val repo = chatRepository ?: return@LaunchedEffect
+            val identity = localIdentity ?: return@LaunchedEffect
+            val localId = identity.peerId
+            // Auto-start mesh with identity peer ID
+            val statusResult = bridge.status()
+            val statusText = statusResult.value.orEmpty()
+            val state = meshStatusValue(statusText, "state")
+            val alreadyActive = statusResult.ok && (state == "active" || (state == null && !statusText.contains("Stopped", ignoreCase = true) && !statusText.contains("local=-")))
+            if (!alreadyActive) bridge.start(localId)
+            // Poll every 3 seconds
+            while (true) {
+                delay(3_000)
+                val drainResult = bridge.drainReceived()
+                if (!drainResult.ok) continue
+                val raw = drainResult.value.orEmpty()
+                val chatPackets = parseReceivedChatPackets(raw)
+                val receiptPackets = parseReceivedReceiptPackets(raw)
+                val pairPackets = parseReceivedPairPackets(raw)
+                if (chatPackets.isEmpty() && receiptPackets.isEmpty() && pairPackets.isEmpty()) continue
+                // Process receipts
+                receiptPackets.forEach { receipt ->
+                    val json = decodeReceiptEnvelope(receipt.envelope) ?: return@forEach
+                    val seenId = receiptSeenPacketId(json, receipt.envelope)
+                    if (repo.hasSeenMeshPacket(seenId, SystemClock.nowMillis())) return@forEach
+                    repo.markSeenMeshPacket(seenId, SystemClock.nowMillis())
+                    val packetId = extractJsonValue(json, "packet_id") ?: meshPacketId(receipt.envelope)
+                    val senderPeerId = extractJsonValue(json, "sender_peer_id") ?: receipt.fromPeerId
+                    val targetPeerId = extractJsonValue(json, "target_peer_id") ?: localId
+                    val receiptStatus = extractJsonValue(json, "status") ?: "DELIVERED"
+                    val receiptTimestamp = extractJsonLong(json, "timestamp") ?: SystemClock.nowMillis()
+                    if (senderPeerId == localId) return@forEach
+                    val messageId = extractJsonValue(json, "message_id") ?: packetId
+                    repo.saveDeliveryReceipt(messageId, packetId, senderPeerId, targetPeerId, receiptStatus, receiptTimestamp)
+                    if (targetPeerId == localId && receiptStatus == "DELIVERED") repo.markDeliveredFromReceipt(packetId, SystemClock.nowMillis())
+                    if (targetPeerId == localId && receiptStatus == "READ") repo.markReadFromReceipt(packetId, SystemClock.nowMillis())
+                }
+                // Process chat messages
+                chatPackets.forEach { packet ->
+                    val payloadJson = decodeChatEnvelope(packet.envelope) ?: return@forEach
+                    val seenId = chatSeenPacketId(payloadJson, packet.envelope)
+                    if (repo.hasSeenMeshPacket(seenId, SystemClock.nowMillis())) return@forEach
+                    val sourcePeerId = chatPacketSourcePeerId(payloadJson) ?: packet.fromPeerId
+                    val targetPeerId = chatPacketTargetPeerId(payloadJson)
+                    val encryptedPayloadJson = chatPacketPayloadJson(payloadJson)
+                    if (sourcePeerId == localId) { repo.markSeenMeshPacket(seenId, SystemClock.nowMillis()); return@forEach }
+                    if (!targetPeerId.isNullOrBlank() && targetPeerId != localId) {
+                        repo.markSeenMeshPacket(seenId, SystemClock.nowMillis())
+                        repo.saveRelayChatPacket(relayPacketId(packet.envelope), sourcePeerId, targetPeerId, payloadJson, SystemClock.nowMillis())
+                        return@forEach
+                    }
+                    val aad = "kampungnet-chat-v1:$sourcePeerId".toBase64()
+                    val decryptResult = crypto.decrypt(sourcePeerId, encryptedPayloadJson, aad)
+                    repo.markSeenMeshPacket(seenId, SystemClock.nowMillis())
+                    if (decryptResult.ok) {
+                        val plaintext = decryptResult.value.orEmpty().fromBase64OrNull().orEmpty()
+                        repo.saveIncomingDecryptedChat(localId, sourcePeerId, plaintext, SystemClock.nowMillis())
+                        val receiptJson = deliveryReceiptJson(chatPacketId(payloadJson) ?: meshPacketId(packet.envelope), localId, sourcePeerId, SystemClock.nowMillis())
+                        bridge.broadcast(encodeReceiptEnvelope(receiptJson))
+                        notificationBridge?.let { nb ->
+                            if (notificationsEnabled) nb.showMessageNotification(sourcePeerId, sourcePeerId, plaintext, notificationPreviewEnabled)
+                        }
+                    } else {
+                        repo.saveRelayChatPacket(relayPacketId(packet.envelope), sourcePeerId, targetPeerId, payloadJson, SystemClock.nowMillis())
+                    }
+                }
+                // Process pairing acceptances - auto-complete pairing on inviter device
+                pairPackets.forEach { pairPacket ->
+                    val aJson = decodePairEnvelope(pairPacket.envelope) ?: return@forEach
+                    val responderPeerId = extractJsonValue(aJson, "responderPeerId") ?: return@forEach
+                    val responderName = extractJsonValue(aJson, "responderName").orEmpty()
+                    if (repo.trustedContacts().any { it.peerId == responderPeerId }) return@forEach
+                    val completionResult = crypto.completePairing(aJson, localId)
+                    if (completionResult.ok) {
+                        val keyJson = completionResult.value.orEmpty()
+                        val contactPeerId = extractJsonValue(keyJson, "contactPeerId").orEmpty()
+                        val keyId = extractJsonValue(keyJson, "keyId").orEmpty()
+                        repo.saveTrustedContact(contactPeerId.ifBlank { responderPeerId }, responderName.ifBlank { contactPeerId.ifBlank { responderPeerId } }, extractJsonValue(aJson, "identityPublicKey"), keyId, keyId, SystemClock.nowMillis())
+                        contactVersion += 1
+                    }
+                }
+                // Sync outbox
+                val pending = repo.retryableOutboxPackets(SystemClock.nowMillis())
+                pending.forEach { packet ->
+                    val env = encodeChatEnvelope(chatPacketJson(packet.packetId, localId, packet.targetPeerId, packet.payload))
+                    if (meshEnvelopeSizeError(env) == null && bridge.broadcast(env).ok) {
+                        repo.markOutboxPacketRelayed(packet.packetId, SystemClock.nowMillis())
+                    }
+                }
+                // Forward relay cache
+                val relayPkts = repo.relayPackets(SystemClock.nowMillis())
+                relayPkts.forEach { packet ->
+                    val relayEnvelope = when (packet.topic) { "CHAT" -> encodeChatEnvelope(packet.payload); "RECEIPT" -> encodeReceiptEnvelope(packet.payload); else -> null }
+                    if (relayEnvelope != null && meshEnvelopeSizeError(relayEnvelope) == null && bridge.broadcast(relayEnvelope).ok) {
+                        repo.markRelayPacketForwarded(packet.packetId)
+                    }
+                }
+            }
+        }
+
         Box(Modifier.fillMaxSize().background(AppBg).navigationBarsPadding()) {
             @Composable
             fun renderScreen(activeScreen: Screen) {
@@ -435,10 +549,10 @@ fun KampungNetApp(
                     }
                 }
                 Screen.CryptoDebug -> CryptoDebugScreen(cryptoBridge, onBack = ::backHome)
-                Screen.PairContact -> PairContactScreen(cryptoBridge, qrScannerBridge, encryptedChatRepository, identityRepository, onPaired = { contactVersion += 1 }, onBack = ::backHome)
+                Screen.PairContact -> PairContactScreen(cryptoBridge, meshBridge, qrScannerBridge, encryptedChatRepository, identityRepository, onPaired = { contactVersion += 1 }, onBack = ::backHome)
                 Screen.EncryptedChatList -> EncryptedChatListScreen(encryptedChatRepository, meshBridge, onBack = ::backHome, onPair = { screen = Screen.PairContact }, onOpen = { peerId -> selectedEncryptedPeerId = peerId; screen = Screen.EncryptedChat })
                 Screen.EncryptedChat -> EncryptedChatScreen(cryptoBridge, meshBridge, encryptedChatRepository, identityRepository, initialContactPeerId = selectedEncryptedPeerId, onBack = { screen = Screen.EncryptedChatList })
-                Screen.MeshDebug -> MeshDebugScreen(cryptoBridge, meshBridge, notificationBridge, notificationsEnabled, notificationPreviewEnabled, encryptedChatRepository, onBack = ::backHome)
+                Screen.MeshDebug -> MeshDebugScreen(cryptoBridge, meshBridge, notificationBridge, notificationsEnabled, notificationPreviewEnabled, encryptedChatRepository, identityRepository, onBack = ::backHome)
             }
             }
             if (animationsEnabled) Crossfade(targetState = screen, animationSpec = tween(180), label = "screen") { renderScreen(it) } else renderScreen(screen)
@@ -787,9 +901,11 @@ private fun MeshDebugScreen(
     notificationsEnabled: Boolean,
     notificationPreviewEnabled: Boolean,
     repository: EncryptedChatRepository?,
+    identityRepository: LocalIdentityRepository?,
     onBack: () -> Unit,
 ) {
-    var localPeerId by remember { mutableStateOf("iphone-a") }
+    val identity = remember { identityRepository?.get() }
+    var localPeerId by remember { mutableStateOf(identity?.peerId.orEmpty().ifBlank { "local-device" }) }
     var envelope by remember { mutableStateOf("KNET1:CHAT:paste-packet-here") }
     var received by remember { mutableStateOf("") }
     var status by remember { mutableStateOf(if (meshBridge == null) "Mesh bridge not available on this platform." else "Ready. Enter peer ID then tap Start.") }
@@ -1341,7 +1457,7 @@ private fun CryptoDebugScreen(cryptoBridge: CryptoBridge?, onBack: () -> Unit) {
 // ── Pair contact ──────────────────────────────────────────────────────────────
 
 @Composable
-private fun PairContactScreen(cryptoBridge: CryptoBridge?, qrScannerBridge: QrScannerBridge?, repository: EncryptedChatRepository?, identityRepository: LocalIdentityRepository?, onPaired: () -> Unit, onBack: () -> Unit) {
+private fun PairContactScreen(cryptoBridge: CryptoBridge?, meshBridge: MeshBridge?, qrScannerBridge: QrScannerBridge?, repository: EncryptedChatRepository?, identityRepository: LocalIdentityRepository?, onPaired: () -> Unit, onBack: () -> Unit) {
     val identity = remember { identityRepository?.get() }
     var localPeerId by remember { mutableStateOf(identity?.peerId.orEmpty()) }
     var localName by remember { mutableStateOf(identity?.displayName.orEmpty()) }
@@ -1403,6 +1519,17 @@ private fun PairContactScreen(cryptoBridge: CryptoBridge?, qrScannerBridge: QrSc
                     acceptanceEnvelope = encodePairingEnvelope("PAIRING_ACCEPT", aJson)
                     pairingMode = "receive"
                     savePairedContact(senderPeerId, senderName, extractJsonValue(oJson, "identityPublicKey"), null, null)
+                    // Auto-broadcast acceptance via mesh so inviter auto-saves contact
+                    meshBridge?.let { bridge ->
+                        val pairEnv = encodePairEnvelope(aJson)
+                        val meshSt = bridge.status()
+                        val meshTxt = meshSt.value.orEmpty()
+                        val meshState = meshStatusValue(meshTxt, "state")
+                        val meshActive = meshSt.ok && (meshState == "active" || (meshState == null && !meshTxt.contains("Stopped", ignoreCase = true)))
+                        if (!meshActive) bridge.start(localPeerId.trim().ifBlank { "local-device" })
+                        bridge.broadcast(pairEnv)
+                        result = "Kontak tersimpan: ${senderName.ifBlank { senderPeerId }}. Pairing dikirim otomatis via mesh."
+                    }
                 }
             }
             "PAIRING_ACCEPT" -> {
@@ -1980,13 +2107,13 @@ private fun HiveLogo(modifier: Modifier = Modifier) {
         drawCircle(primaryColor)
         val w = size.width
         val h = size.height
-        val leftX  = w * 0.306f
-        val rightX = w * 0.694f
-        val topY   = h * 0.241f
+        val leftX  = w * 0.370f
+        val rightX = w * 0.630f
+        val topY   = h * 0.315f
         val midY   = h * 0.500f
-        val botY   = h * 0.759f
-        val strokeW = w * 0.079f
-        val nodeR   = w * 0.065f
+        val botY   = h * 0.685f
+        val strokeW = w * 0.056f
+        val nodeR   = w * 0.046f
         val white = Color.White
 
         drawLine(white, Offset(leftX,  topY), Offset(leftX,  botY), strokeW, StrokeCap.Round)

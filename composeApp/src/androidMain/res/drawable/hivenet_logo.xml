@@ -6,39 +6,39 @@
 
     <!-- Left vertical bar -->
     <path
-        android:pathData="M33,26 L33,82"
+        android:pathData="M40,34 L40,74"
         android:strokeColor="#FFFFFF"
-        android:strokeWidth="8.5"
+        android:strokeWidth="6"
         android:strokeLineCap="round"
         android:fillColor="@android:color/transparent" />
 
     <!-- Right vertical bar -->
     <path
-        android:pathData="M75,26 L75,82"
+        android:pathData="M68,34 L68,74"
         android:strokeColor="#FFFFFF"
-        android:strokeWidth="8.5"
+        android:strokeWidth="6"
         android:strokeLineCap="round"
         android:fillColor="@android:color/transparent" />
 
     <!-- Crossbar -->
     <path
-        android:pathData="M33,54 L75,54"
+        android:pathData="M40,54 L68,54"
         android:strokeColor="#FFFFFF"
-        android:strokeWidth="8.5"
+        android:strokeWidth="6"
         android:strokeLineCap="round"
         android:fillColor="@android:color/transparent" />
 
     <!-- Top-left node -->
-    <path android:fillColor="#FFFFFF" android:pathData="M33,26m-7,0a7,7 0,1 1,14 0a7,7 0,1 1,-14 0" />
+    <path android:fillColor="#FFFFFF" android:pathData="M40,34m-5,0a5,5 0,1 1,10 0a5,5 0,1 1,-10 0" />
     <!-- Bottom-left node -->
-    <path android:fillColor="#FFFFFF" android:pathData="M33,82m-7,0a7,7 0,1 1,14 0a7,7 0,1 1,-14 0" />
-    <!-- Mid-left node (crossbar intersection) -->
-    <path android:fillColor="#FFFFFF" android:pathData="M33,54m-7,0a7,7 0,1 1,14 0a7,7 0,1 1,-14 0" />
+    <path android:fillColor="#FFFFFF" android:pathData="M40,74m-5,0a5,5 0,1 1,10 0a5,5 0,1 1,-10 0" />
+    <!-- Mid-left node -->
+    <path android:fillColor="#FFFFFF" android:pathData="M40,54m-5,0a5,5 0,1 1,10 0a5,5 0,1 1,-10 0" />
     <!-- Top-right node -->
-    <path android:fillColor="#FFFFFF" android:pathData="M75,26m-7,0a7,7 0,1 1,14 0a7,7 0,1 1,-14 0" />
+    <path android:fillColor="#FFFFFF" android:pathData="M68,34m-5,0a5,5 0,1 1,10 0a5,5 0,1 1,-10 0" />
     <!-- Bottom-right node -->
-    <path android:fillColor="#FFFFFF" android:pathData="M75,82m-7,0a7,7 0,1 1,14 0a7,7 0,1 1,-14 0" />
-    <!-- Mid-right node (crossbar intersection) -->
-    <path android:fillColor="#FFFFFF" android:pathData="M75,54m-7,0a7,7 0,1 1,14 0a7,7 0,1 1,-14 0" />
+    <path android:fillColor="#FFFFFF" android:pathData="M68,74m-5,0a5,5 0,1 1,10 0a5,5 0,1 1,-10 0" />
+    <!-- Mid-right node -->
+    <path android:fillColor="#FFFFFF" android:pathData="M68,54m-5,0a5,5 0,1 1,10 0a5,5 0,1 1,-10 0" />
 
 </vector>
